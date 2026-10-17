@@ -1,0 +1,108 @@
+/* Artikeldesign för Klimathemmet. Allt är scopat under .kh-artikel så att
+   stilen inte krockar med WordPress-temat när den läggs i ett Anpassad HTML-block. */
+.kh-artikel {
+  --kh-gron: #2f6b4f;
+  --kh-gron-ljus: #e8f2ec;
+  --kh-gron-mork: #1f4a36;
+  --kh-sand: #f7f3ec;
+  --kh-gul: #fff6dd;
+  --kh-gul-kant: #e9c25a;
+  --kh-rod-ljus: #fdecec;
+  --kh-rod: #c0504d;
+  --kh-text: #1f2a24;
+  --kh-dampad: #5b6a62;
+  --kh-kant: #dfe6e1;
+  --kh-radie: 12px;
+  color: var(--kh-text);
+  font-size: 18px;
+  line-height: 1.7;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.kh-artikel * { box-sizing: border-box; }
+.kh-artikel h2 {
+  font-size: 1.6em;
+  line-height: 1.25;
+  margin: 2.2em 0 0.6em;
+  color: var(--kh-gron-mork);
+  scroll-margin-top: 90px;
+}
+.kh-artikel h3 { font-size: 1.25em; margin: 1.6em 0 0.4em; color: var(--kh-gron-mork); }
+.kh-artikel p { margin: 0 0 1.1em; }
+.kh-artikel a { color: var(--kh-gron); text-decoration: underline; text-underline-offset: 3px; }
+.kh-artikel ul, .kh-artikel ol { padding-left: 1.3em; margin: 0 0 1.2em; }
+.kh-artikel li { margin-bottom: 0.4em; }
+.kh-artikel .kh-ingress { font-size: 1.15em; color: var(--kh-dampad); }
+
+.kh-artikel .kh-box-rubrik {
+  font-weight: 700;
+  font-size: 0.8em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0 0 0.6em;
+}
+.kh-artikel .kh-snabbfakta,
+.kh-artikel .kh-toc,
+.kh-artikel .kh-tips,
+.kh-artikel .kh-varning,
+.kh-artikel .kh-sammanfattning {
+  border-radius: var(--kh-radie);
+  padding: 1.2em 1.4em;
+  margin: 1.6em 0;
+}
+.kh-artikel .kh-snabbfakta { background: var(--kh-gron-ljus); border-left: 5px solid var(--kh-gron); }
+.kh-artikel .kh-snabbfakta .kh-box-rubrik { color: var(--kh-gron); }
+.kh-artikel .kh-snabbfakta ul { margin: 0; }
+.kh-artikel .kh-toc { background: var(--kh-sand); border: 1px solid var(--kh-kant); }
+.kh-artikel .kh-toc ol { margin: 0; }
+.kh-artikel .kh-toc a { text-decoration: none; }
+.kh-artikel .kh-toc a:hover { text-decoration: underline; }
+.kh-artikel .kh-tips { background: var(--kh-gul); border-left: 5px solid var(--kh-gul-kant); }
+.kh-artikel .kh-varning { background: var(--kh-rod-ljus); border-left: 5px solid var(--kh-rod); }
+.kh-artikel .kh-varning .kh-box-rubrik { color: var(--kh-rod); }
+.kh-artikel .kh-sammanfattning { background: var(--kh-gron); color: #fff; }
+.kh-artikel .kh-sammanfattning .kh-box-rubrik { color: #cfe6d9; }
+.kh-artikel .kh-tips > :last-child,
+.kh-artikel .kh-varning > :last-child,
+.kh-artikel .kh-sammanfattning > :last-child { margin-bottom: 0; }
+
+.kh-artikel .kh-procon { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; margin: 1.6em 0; }
+.kh-artikel .kh-pro, .kh-artikel .kh-con { border-radius: var(--kh-radie); padding: 1.1em 1.3em; border: 1px solid var(--kh-kant); }
+.kh-artikel .kh-pro { background: var(--kh-gron-ljus); }
+.kh-artikel .kh-pro .kh-box-rubrik { color: var(--kh-gron); }
+.kh-artikel .kh-con { background: var(--kh-rod-ljus); }
+.kh-artikel .kh-con .kh-box-rubrik { color: var(--kh-rod); }
+.kh-artikel .kh-pro ul, .kh-artikel .kh-con ul { margin: 0; }
+
+.kh-artikel .kh-tabell-wrap { overflow-x: auto; margin: 1.4em 0; border-radius: var(--kh-radie); border: 1px solid var(--kh-kant); }
+.kh-artikel .kh-tabell { width: 100%; border-collapse: collapse; font-size: 0.92em; }
+.kh-artikel .kh-tabell th { background: var(--kh-gron); color: #fff; text-align: left; padding: 0.75em 1em; }
+.kh-artikel .kh-tabell td { padding: 0.7em 1em; border-top: 1px solid var(--kh-kant); }
+.kh-artikel .kh-tabell tbody tr:nth-child(even) { background: var(--kh-sand); }
+
+.kh-artikel .kh-steg { list-style: none; counter-reset: steg; padding: 0; }
+.kh-artikel .kh-steg li { counter-increment: steg; position: relative; padding-left: 3em; margin-bottom: 1em; }
+.kh-artikel .kh-steg li::before {
+  content: counter(steg);
+  position: absolute; left: 0; top: 0.05em;
+  width: 2em; height: 2em; border-radius: 50%;
+  background: var(--kh-gron); color: #fff; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; font-size: 0.9em;
+}
+
+.kh-artikel .kh-faq details { border: 1px solid var(--kh-kant); border-radius: var(--kh-radie); margin-bottom: 0.7em; background: #fff; }
+.kh-artikel .kh-faq summary { cursor: pointer; font-weight: 600; padding: 0.9em 1.2em; list-style: none; position: relative; padding-right: 2.6em; }
+.kh-artikel .kh-faq summary::-webkit-details-marker { display: none; }
+.kh-artikel .kh-faq summary::after { content: "+"; position: absolute; right: 1.1em; top: 0.7em; font-size: 1.3em; color: var(--kh-gron); }
+.kh-artikel .kh-faq details[open] summary::after { content: "–"; }
+.kh-artikel .kh-faq details p { padding: 0 1.2em 1em; margin: 0; }
+
+.kh-artikel .kh-bild { margin: 1.8em 0; }
+.kh-artikel .kh-bild img { width: 100%; height: auto; display: block; border-radius: var(--kh-radie); aspect-ratio: 3 / 2; object-fit: cover; }
+.kh-artikel .kh-bild figcaption { font-size: 0.85em; color: var(--kh-dampad); margin-top: 0.5em; text-align: center; }
+
+@media (max-width: 640px) {
+  .kh-artikel { font-size: 17px; }
+  .kh-artikel h2 { font-size: 1.4em; }
+  .kh-artikel .kh-procon { grid-template-columns: 1fr; }
+}
