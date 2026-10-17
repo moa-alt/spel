@@ -198,6 +198,7 @@ function setArticle(article) {
   $("#checksCard").hidden = false;
   $("#demoBadge").hidden = !article.demo;
   $("#titel").value = article.titel;
+  requestAnimationFrame(fitTitle);
   $("#meta_titel").value = article.meta_titel;
   $("#meta_beskrivning").value = article.meta_beskrivning;
   $("#slug").value = article.slug;
@@ -251,9 +252,10 @@ function articleBodyForPreview() {
 
 const PREVIEW_BASE_CSS = `
   body { margin: 0; padding: 40px 24px 80px; font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; background: #fff; }
-  .kh-h1 { max-width: 760px; margin: 0 auto 24px; font-size: 2.3em; line-height: 1.15; color: #1f4a36; letter-spacing: -.01em; }
+  html { overflow: hidden; }
+  .kh-h1 { max-width: 760px; margin: 0 auto 24px; font-family: Fraunces, Georgia, serif; font-weight: 500; font-size: 2.4em; line-height: 1.12; color: #193D2D; letter-spacing: -.01em; }
   .kh-platshallare .kh-ph { aspect-ratio: 3 / 2; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-    background: repeating-linear-gradient(45deg, #eef5f0, #eef5f0 12px, #e5efe8 12px, #e5efe8 24px); color: #2f6b4f; border: 1px dashed #b7d0c0; text-align: center; padding: 16px; }
+    background: repeating-linear-gradient(45deg, #EEF4EF, #EEF4EF 12px, #DCE9DF 12px, #DCE9DF 24px); color: #193D2D; border: 1px dashed #B9CDBF; text-align: center; padding: 16px; }
   .kh-platshallare .kh-ph span { font-weight: 700; }
   .kh-platshallare .kh-ph small { color: #5b6a62; max-width: 80%; }
   [contenteditable="true"]:focus { outline: none; }
@@ -266,7 +268,7 @@ function renderPreview() {
   const editable = state.editing ? ' contenteditable="true"' : "";
   frame.srcdoc = `<!doctype html><html lang="sv"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&family=Inter:wght@400;600;700&display=swap">
     <link rel="stylesheet" href="${location.origin}/static/artikel.css">
     <style>${PREVIEW_BASE_CSS}</style></head>
     <body><h1 class="kh-h1">${esc($("#titel").value)}</h1>
@@ -274,6 +276,8 @@ function renderPreview() {
   frame.onload = () => {
     frame.contentWindow.scrollTo(0, prevScroll);
     const doc = frame.contentDocument;
+    fitFrame();
+    new ResizeObserver(fitFrame).observe(doc.body);
     // Interna länkar (innehållsförteckning) scrollar inom förhandsvisningen.
     doc.addEventListener("click", (e) => {
       const a = e.target.closest("a[href^='#']");
@@ -286,6 +290,13 @@ function renderPreview() {
   updateWordCount();
 }
 const renderPreviewSoon = debounce(renderPreview, 350);
+
+// Låter iframen bli lika hög som artikeln så att sidan scrollar som en vanlig webbsida.
+function fitFrame() {
+  const frame = $("#previewFrame");
+  const body = frame.contentDocument?.body;
+  if (body) frame.style.height = `${Math.ceil(body.parentElement.scrollHeight)}px`;
+}
 
 // Läser tillbaka texten från den redigerbara förhandsvisningen och ersätter bilderna med markörer igen.
 const syncFromPreview = debounce(() => {
@@ -325,7 +336,17 @@ $("#editToggle").addEventListener("change", (e) => {
 });
 
 /* ---------- Titel, HTML och SEO-fält ---------- */
+// Rubriken är en textarea så att den kan radbrytas på mobil; Enter ger ingen ny rad.
+function fitTitle() {
+  const t = $("#titel");
+  t.style.height = "auto";
+  t.style.height = `${t.scrollHeight}px`;
+}
+$("#titel").addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+window.addEventListener("resize", debounce(fitTitle, 150));
 $("#titel").addEventListener("input", (e) => {
+  e.target.value = e.target.value.replace(/\s*\n\s*/g, " ");
+  fitTitle();
   state.article.titel = e.target.value;
   renderSeo(); renderPreviewSoon(); save();
 });
@@ -446,6 +467,8 @@ $("#wpBtn").addEventListener("click", async () => {
 
 /* ---------- Vyer ---------- */
 function showView(view) {
+  if (document.body.dataset.view !== view) window.scrollTo(0, 0);
+  document.body.dataset.view = view;
   $("#queueView").hidden = view !== "queue";
   $("#editorView").hidden = view !== "editor";
   $$(".view-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -681,6 +704,7 @@ $("#genAllBtn").addEventListener("click", async () => {
 async function openArticle(id, { keepView = false } = {}) {
   let rec;
   try { rec = await api(`/api/artiklar/${id}`); } catch (err) { toast(err.message); return; }
+  if (!keepView || state.current?.id !== id) window.scrollTo(0, 0);
   state.current = rec;
   remember("kh-studio-artikel", String(id));
   if (!keepView) showView("editor");
@@ -773,7 +797,31 @@ async function reviewAction(path, body, message) {
   } catch (err) { toast(err.message); }
 }
 
-$("#approveBtn").addEventListener("click", () => reviewAction("godkann", {}, "Artikeln är godkänd"));
+// Godkännande är alltid ett medvetet steg: sammanfattning och en kryssruta som måste bockas i.
+$("#approveBtn").addEventListener("click", () => {
+  const a = state.article;
+  const ok = $$("#checks li:not(.warn):not(.bad)").length, totalt = $$("#checks li").length;
+  const saknarAlt = (a.bilder || []).filter((b) => b.alt.trim().length <= 5).length;
+  const rader = [
+    ["Rubrik", a.titel],
+    ["Metatitel", `${a.meta_titel.length} tecken`],
+    ["Metabeskrivning", `${a.meta_beskrivning.length} tecken`],
+    ["URL", `/${a.slug}`],
+    ["SEO-kontroll", `${ok} av ${totalt} uppfyllda`],
+    ["Bilder utan alt-text", String(saknarAlt)],
+    ["Längd", `${wordCount().toLocaleString("sv-SE")} ord`],
+  ];
+  $("#approveSummary").innerHTML = rader.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
+  $("#approveConfirm").checked = false;
+  $("#approveOk").disabled = true;
+  $("#approveDialog").showModal();
+});
+$("#approveConfirm").addEventListener("change", (e) => { $("#approveOk").disabled = !e.target.checked; });
+$("#approveDialog").addEventListener("close", () => {
+  if ($("#approveDialog").returnValue === "ok" && $("#approveConfirm").checked) {
+    reviewAction("godkann", { bekraftad: true }, "Artikeln är godkänd");
+  }
+});
 $("#revokeBtn").addEventListener("click", () => reviewAction("aterkalla", {}, "Godkännandet är återkallat"));
 $("#toReviewBtn").addEventListener("click", () => reviewAction("skicka-till-granskning", {}, "Skickad till granskning"));
 $("#changesBtn").addEventListener("click", async () => {

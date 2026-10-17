@@ -39,13 +39,15 @@ def test_generera_alla_sparar_som_vantar_pa_granskning(klient):
 
 def test_godkannande_kraver_granskning_och_upphavs_vid_redigering(klient):
     a = klient.post("/api/artiklar", json={"huvudsokord": "fönsterbyte"}).json()
+    # Godkännande utan uttrycklig bekräftelse avvisas alltid.
+    assert klient.post(f"/api/artiklar/{a['id']}/godkann", json={}).status_code == 400
     # Ett utkast utan innehåll kan inte godkännas.
-    assert klient.post(f"/api/artiklar/{a['id']}/godkann").status_code == 409
+    assert klient.post(f"/api/artiklar/{a['id']}/godkann", json={"bekraftad": True}).status_code == 409
 
     a = skapa_och_generera(klient)
-    assert klient.post(f"/api/artiklar/{a['id']}/godkann").json() == {"status": "godkand"}
+    assert klient.post(f"/api/artiklar/{a['id']}/godkann", json={"bekraftad": True}).json() == {"status": "godkand"}
     # Dubbelklick ger inget andra godkännande.
-    assert klient.post(f"/api/artiklar/{a['id']}/godkann").status_code == 409
+    assert klient.post(f"/api/artiklar/{a['id']}/godkann", json={"bekraftad": True}).status_code == 409
     godkand = klient.get(f"/api/artiklar/{a['id']}").json()
     assert godkand["godkand_at"]
 
@@ -78,10 +80,10 @@ def test_begar_andringar_och_generera_om(klient):
 def test_avvisa_aterstall_aterkalla_och_ta_bort(klient):
     a = skapa_och_generera(klient)
     assert klient.post(f"/api/artiklar/{a['id']}/avvisa", json={"kommentar": "Fel ämne"}).json() == {"status": "avvisad"}
-    assert klient.post(f"/api/artiklar/{a['id']}/godkann").status_code == 409
+    assert klient.post(f"/api/artiklar/{a['id']}/godkann", json={"bekraftad": True}).status_code == 409
     assert klient.post(f"/api/artiklar/{a['id']}/aterstall").json() == {"status": "utkast"}
     klient.post(f"/api/artiklar/{a['id']}/skicka-till-granskning")
-    klient.post(f"/api/artiklar/{a['id']}/godkann")
+    klient.post(f"/api/artiklar/{a['id']}/godkann", json={"bekraftad": True})
     assert klient.post(f"/api/artiklar/{a['id']}/aterkalla").json() == {"status": "granskas"}
     assert klient.delete(f"/api/artiklar/{a['id']}").status_code == 204
     assert klient.get(f"/api/artiklar/{a['id']}").status_code == 404

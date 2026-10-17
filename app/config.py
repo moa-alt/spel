@@ -33,13 +33,13 @@ EFFORT_NIVAER = ("low", "medium", "high", "xhigh", "max")
 @dataclass(frozen=True)
 class Settings:
     anthropic_api_key: str = field(default_factory=lambda: hemlighet("ANTHROPIC_API_KEY"), repr=False)
-    claude_model: str = os.getenv("STUDIO_CLAUDE_MODEL", "claude-opus-5-5")
-    claude_effort: str = os.getenv("STUDIO_CLAUDE_EFFORT", "high")
+    claude_model: str = field(default_factory=lambda: os.getenv("STUDIO_CLAUDE_MODEL", "claude-opus-5-5"))
+    claude_effort: str = field(default_factory=lambda: os.getenv("STUDIO_CLAUDE_EFFORT", "high"))
     openai_api_key: str = field(default_factory=lambda: hemlighet("OPENAI_API_KEY"), repr=False)
-    wp_url: str = os.getenv("WP_URL", "").rstrip("/")
-    wp_user: str = os.getenv("WP_USER", "")
+    wp_url: str = field(default_factory=lambda: os.getenv("WP_URL", "").rstrip("/"))
+    wp_user: str = field(default_factory=lambda: os.getenv("WP_USER", ""))
     wp_app_password: str = field(default_factory=lambda: hemlighet("WP_APP_PASSWORD"), repr=False)
-    studio_user: str = os.getenv("STUDIO_USER", "")
+    studio_user: str = field(default_factory=lambda: os.getenv("STUDIO_USER", ""))
     studio_password: str = field(default_factory=lambda: hemlighet("STUDIO_PASSWORD"), repr=False)
 
     def __post_init__(self):

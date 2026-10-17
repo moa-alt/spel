@@ -1,17 +1,17 @@
 /* Artikeldesign för Klimathemmet. Allt är scopat under .kh-artikel så att
    stilen inte krockar med WordPress-temat när den läggs i ett Anpassad HTML-block. */
 .kh-artikel {
-  --kh-gron: #2f6b4f;
-  --kh-gron-ljus: #e8f2ec;
-  --kh-gron-mork: #1f4a36;
-  --kh-sand: #f7f3ec;
+  --kh-gron: #193D2D;
+  --kh-gron-ljus: #DCE9DF;
+  --kh-gron-mork: #193D2D;
+  --kh-sand: #F7F5F0;
   --kh-gul: #fff6dd;
   --kh-gul-kant: #e9c25a;
   --kh-rod-ljus: #fdecec;
   --kh-rod: #c0504d;
   --kh-text: #1f2a24;
   --kh-dampad: #5b6a62;
-  --kh-kant: #dfe6e1;
+  --kh-kant: #E7E3D9;
   --kh-radie: 12px;
   color: var(--kh-text);
   font-size: 18px;
@@ -61,7 +61,7 @@
 .kh-artikel .kh-varning { background: var(--kh-rod-ljus); border-left: 5px solid var(--kh-rod); }
 .kh-artikel .kh-varning .kh-box-rubrik { color: var(--kh-rod); }
 .kh-artikel .kh-sammanfattning { background: var(--kh-gron); color: #fff; }
-.kh-artikel .kh-sammanfattning .kh-box-rubrik { color: #cfe6d9; }
+.kh-artikel .kh-sammanfattning .kh-box-rubrik { color: #DCE9DF; }
 .kh-artikel .kh-tips > :last-child,
 .kh-artikel .kh-varning > :last-child,
 .kh-artikel .kh-sammanfattning > :last-child { margin-bottom: 0; }

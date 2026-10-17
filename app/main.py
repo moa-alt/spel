@@ -251,8 +251,15 @@ def skicka_till_granskning(artikel_id: int):
                 "Bara utkast kan skickas till granskning.")
 
 
+class Godkannande(BaseModel):
+    bekraftad: bool = False
+
+
 @app.post("/api/artiklar/{artikel_id}/godkann")
-def godkann(artikel_id: int):
+def godkann(artikel_id: int, body: Godkannande):
+    # Godkännande ska alltid vara ett medvetet steg; gränssnittet skickar bekraftad först efter kryssrutan.
+    if not body.bekraftad:
+        raise HTTPException(400, "Godkännandet måste bekräftas.")
     artikel = _hamta_eller_404(artikel_id)
     return _byt(artikel_id, ("granskas",), "godkand", "godkand", None,
                 "Bara artiklar som väntar på granskning kan godkännas.",

@@ -12,7 +12,8 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 | 4 | Bilder: 4 AI-bilder → komprimerad WebP med beskrivande filnamn, generera om text eller bilder separat | Nästa |
 | 5 | WordPress: anslutning, kontroll av SEO-plugin och API-fält, mediauppladdning, utkast med Custom HTML-block, CSS via litet tilläggsplugin, kontroll mot redan publicerade artiklar, internlänkförslag, testläge | Planerat |
 | 6 | Schemaläggning: startdatum, klockslag (Europe/Stockholm), ett godkänt inlägg per dag, `status=future` i WordPress, kalender, ändra datum, pausa, återkalla före publicering, skydd mot dubbelpublicering, kontroll att WordPress verkligen publicerat | Planerat |
-| 7 | Drift: körning på server, säkerhetskopior av databasen, loggar utan hemligheter | Planerat |
+| 3b | **Ny design och mobilanpassning:** skandinaviskt ljust tema, mobile-first, granskningsvy för mobil, godkännande med bekräftelse | ✅ |
+| 7 | Drift: säker inloggning med sessioner, HTTPS, körning på server, säkerhetskopior, driftsättningsguide | Planerat |
 
 ## Granskningsflödet
 
@@ -46,9 +47,43 @@ fukt i källare;dränering, lukt
 ## Tester
 
 ```bash
-pip install pytest httpx
-python -m pytest -q
+pip install -r requirements-dev.txt
+playwright install chromium            # en gång, för webbläsartesterna
+python -m pytest -q                    # alla tester (enhet + webbläsare)
+python -m pytest tests/e2e -q          # bara webbläsartesterna
+E2E_SKARMBILDER=skarmbilder python -m pytest tests/e2e -q   # sparar skärmbilder
 ```
+
+Webbläsartesterna kör hela granskningsflödet på fyra skärmstorlekar: iPhone (390 px), Android (412 px), surfplatta (820 px) och dator (1440 px). De kontrollerar bland annat följande:
+- att sidan aldrig går att scrolla i sidled
+- att granskningsknapparna syns utan att man scrollar på mobil
+- att godkännande kräver kryssrutan
+- att formulärfälten är minst 16 px, så att iOS inte zoomar in
+
+## Design
+
+- **Palett:** varm off-white `#F7F5F0`, mörkgrönt `#193D2D`, ljusgrönt `#DCE9DF` och vitt. Ett ljust tema; det mörka temat är borttaget.
+- **Typografi:** rubriker i Fraunces (serif) och gränssnitt i Inter.
+- **Mobile-first:** grundstilen är byggd för mobil, med brytpunkter vid 720 px (surfplatta) och 1080 px (dator).
+- **Mobil:**
+  - Navigeringen ligger längst ned.
+  - Granskningsknapparna (Godkänn, Begär ändringar, Avvisa) ligger fast längst ned i editorn.
+  - Flikarna följer med när du scrollar.
+  - Dialoger öppnas som ark nerifrån.
+  - Förhandsvisningen växer med artikeln, så att du läser den som en vanlig webbsida.
+- **Godkännande:** öppnar alltid en sammanfattning med en kryssruta som måste bockas i. Servern avvisar godkännanden som saknar bekräftelsen.
+
+## Testa på mobilen
+
+**I datorns webbläsare:** öppna http://localhost:8000. I Chrome trycker du `Cmd+Option+I` och sedan `Cmd+Shift+M` och väljer t.ex. iPhone 14. I Safari väljer du *Utvecklare → Gå in i responsivt designläge*.
+
+**På din riktiga telefon (samma wifi som datorn):**
+
+```bash
+STUDIO_USER=moa STUDIO_PASSWORD='välj-ett-långt-lösenord' ./scripts/mobiltest.sh
+```
+
+Skriptet skriver ut en adress, till exempel `http://192.168.1.23:8000`. Öppna den i telefonens webbläsare och logga in. Skriptet startar inte utan lösenord, eftersom alla på nätverket annars kan nå studion. macOS kan fråga om Python får ta emot inkommande anslutningar; svara Tillåt. Det här är bara till för test i hemnätverket. Publik drift kräver HTTPS och beskrivs i en kommande driftsättningsguide.
 
 ## Kom igång
 
@@ -126,6 +161,7 @@ Använd värdtjänstens egen hemlighetshantering, till exempel *Secrets* hos Ren
 ```
 scripts/
   spara_hemlighet.py   Sparar nycklar säkert utanför projektet
+  mobiltest.sh         Startar studion för test från mobilen på samma wifi
   git-hooks/pre-commit Stoppar commits med nycklar
 app/
   main.py          FastAPI-server och API
