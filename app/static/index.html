@@ -117,7 +117,7 @@
         <!-- SEO -->
         <section class="panel" data-panel="seo">
           <div class="grid-2">
-            <div class="card">
+            <div class="card seo-fields">
               <label class="field">
                 <span class="label">Metatitel <span class="counter" data-for="meta_titel" data-max="60"></span></span>
                 <input id="meta_titel" type="text">
@@ -134,6 +134,11 @@
                 <span class="label">Sökord</span>
                 <div class="chips" id="kwSummary"></div>
               </div>
+            </div>
+            <div class="card intent" id="intentCard" hidden>
+              <span class="label">Sökintention <span class="intent-typ" id="intentTyp"></span></span>
+              <p id="intentBeskrivning"></p>
+              <p class="muted"><strong>Målgrupp:</strong> <span id="intentMalgrupp"></span></p>
             </div>
             <div class="card">
               <span class="label">Så kan det se ut i Google</span>

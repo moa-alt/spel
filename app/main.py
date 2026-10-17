@@ -4,14 +4,16 @@ Starta: uvicorn app.main:app --reload
 """
 
 import base64
+import json
 import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .ai_writer import GenereringsFel, generera_artikel
 from .config import settings
 from .demo import build_demo_article
 from .render import wordpress_block
@@ -60,6 +62,8 @@ class Article(BaseModel):
     meta_beskrivning: str
     html: str
     bilder: list[Bild] = Field(default_factory=list)
+    huvudsokord: str = ""
+    sekundara_sokord: list[str] = Field(default_factory=list)
 
 
 @app.get("/api/status")
@@ -68,9 +72,26 @@ def status():
 
 
 @app.post("/api/generera")
-def generera(req: GenerateRequest):
-    # Steg 2 ersätter demoartikeln med AI-genererad text.
-    return build_demo_article(req.huvudsokord, req.sekundara_sokord)
+async def generera(req: GenerateRequest):
+    """Strömmar förloppet som NDJSON: en JSON-händelse per rad, sist {"typ": "klar", "artikel": ...}."""
+    huvudsokord = req.huvudsokord.strip()
+    sekundara = [s.strip() for s in req.sekundara_sokord if s.strip()]
+
+    async def handelser():
+        if not settings.anthropic_api_key:
+            yield {"typ": "klar", "artikel": build_demo_article(huvudsokord, sekundara)}
+            return
+        try:
+            async for h in generera_artikel(huvudsokord, sekundara):
+                yield h
+        except GenereringsFel as e:
+            yield {"typ": "fel", "meddelande": str(e)}
+
+    async def ndjson():
+        async for h in handelser():
+            yield json.dumps(h, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(ndjson(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/exportera")

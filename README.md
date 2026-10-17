@@ -6,9 +6,9 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 
 | Steg | Innehåll | Status |
 |---|---|---|
-| 1 | Gränssnitt, förhandsgranskning, redigering, SEO-kontroll, export av WordPress-kod | ✅ Klart (med demotext) |
-| 2 | AI-genererad artikel utifrån sökintention (Claude) | Nästa steg |
-| 3 | 4 AI-bilder → komprimerad WebP | Planerat |
+| 1 | Gränssnitt, förhandsgranskning, redigering, SEO-kontroll, export av WordPress-kod | ✅ Klart |
+| 2 | AI-genererad artikel utifrån sökintention (Claude) | ✅ Klart |
+| 3 | 4 AI-bilder → komprimerad WebP | Nästa steg |
 | 4 | Skicka till WordPress som utkast (inkl. metadata för Yoast/Rank Math) | Planerat |
 
 ## Kom igång
@@ -22,6 +22,19 @@ uvicorn app.main:app --reload
 ```
 
 Öppna sedan http://localhost:8000.
+
+## AI-generering (steg 2)
+
+Med `ANTHROPIC_API_KEY` i `.env` skriver Claude artikeln. Utan nyckel visas en demotext.
+
+- Claude analyserar först sökintentionen (typ, beskrivning och målgrupp). Den visas i SEO-fliken.
+- Svaret kommer som strukturerad JSON: titel, slug, metatitel, metabeskrivning, HTML och fyra bilder med alt-text, bildtext och bildprompt.
+- HTML:en följer designens komponenter (`kh-snabbfakta`, `kh-toc`, `kh-tips` med flera) och passerar en tillåtelselista som tar bort skript, stilar, `on*`-attribut och osäkra länkar.
+- Förloppet strömmas till gränssnittet medan Claude arbetar. En artikel tar normalt 1–3 minuter.
+- Om Claude avböjer en förfrågan tar en reservmodell över automatiskt (`fallbacks: "default"`).
+- Valfria inställningar: `STUDIO_CLAUDE_MODEL` (standard `claude-opus-5-5`) och `STUDIO_CLAUDE_EFFORT` (`low`–`max`, standard `high`). Lägre effort går snabbare och kostar mindre.
+
+Prompten finns i `app/ai_writer.py` (`SYSTEMPROMPT`). Där justerar du ton, längd och struktur.
 
 ## Funktioner i steg 1
 
@@ -46,7 +59,9 @@ uvicorn app.main:app --reload
 app/
   main.py          FastAPI-server och API
   config.py        Läser inställningar och hemligheter från .env
-  demo.py          Demoartikel (ersätts av AI i steg 2)
+  ai_writer.py     Prompt och anrop till Claude
+  sanitize.py      Rensar AI:ns HTML med en tillåtelselista
+  demo.py          Demoartikel när ingen API-nyckel finns
   render.py        Bygger WordPress-koden
   static/
     index.html     Gränssnittet

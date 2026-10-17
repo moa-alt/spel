@@ -88,7 +88,34 @@ $("#chips").addEventListener("click", (e) => {
 $("#chipsBox").addEventListener("click", (e) => { if (e.target.id === "chipsBox" || e.target.id === "chips") $("#chipInput").focus(); });
 
 /* ---------- Generering ---------- */
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const STEG_TEXT = ["Analyserar sökintention", "Skriver artikeln", "Skapar 4 bilder (WebP)", "Optimerar metadata"];
+
+function setStep(index) {
+  $$("#progress li").forEach((li, i) => {
+    if (li.classList.contains("skipped")) return;
+    li.classList.toggle("done", i < index);
+    li.classList.toggle("active", i === index);
+  });
+}
+
+// Läser NDJSON-strömmen från servern: en händelse per rad.
+async function* readEvents(res) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (line) yield JSON.parse(line);
+    }
+  }
+  if (buf.trim()) yield JSON.parse(buf);
+}
 
 $("#brief").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -101,33 +128,48 @@ $("#brief").addEventListener("submit", async (e) => {
   const btn = $("#genBtn");
   btn.disabled = true;
   btn.classList.add("loading");
-  const steps = $$("#progress li");
   $("#progress").hidden = false;
-  steps.forEach((s) => s.classList.remove("active", "done"));
-
-  // Stegen animeras medan servern arbetar; de riktiga stegen rapporteras när AI:n är inkopplad.
-  let i = 0;
-  steps[0].classList.add("active");
-  const ticker = setInterval(() => {
-    if (i < steps.length - 1) {
-      steps[i].classList.replace("active", "done");
-      steps[++i].classList.add("active");
-    }
-  }, 700);
+  $$("#progress li").forEach((li, i) => {
+    li.className = "";
+    li.textContent = STEG_TEXT[i];
+  });
+  // Bilderna kopplas in i steg 3 av utvecklingen.
+  const bildSteg = $('#progress li[data-step="2"]');
+  if (!state.status.bilder) { bildSteg.classList.add("skipped"); bildSteg.textContent = "Bilder – kopplas in senare"; }
+  setStep(0);
+  const started = Date.now();
+  const timer = setInterval(() => {
+    btn.lastChild.textContent = ` Genererar… ${Math.round((Date.now() - started) / 1000)} s`;
+  }, 1000);
 
   try {
-    const [article] = await Promise.all([
-      api("/api/generera", { huvudsokord, sekundara_sokord: state.sekundara }),
-      wait(steps.length * 700),
-    ]);
-    steps.forEach((s) => { s.classList.remove("active"); s.classList.add("done"); });
+    const res = await fetch("/api/generera", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ huvudsokord, sekundara_sokord: state.sekundara }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(Array.isArray(data.detail) ? "Kontrollera sökorden" : data.detail || `Fel ${res.status}`);
+    }
+    let article = null;
+    for await (const ev of readEvents(res)) {
+      if (ev.typ === "steg") setStep(ev.steg);
+      else if (ev.typ === "framsteg") $('#progress li[data-step="1"]').textContent = `Skriver artikeln… ${ev.tecken.toLocaleString("sv-SE")} tecken`;
+      else if (ev.typ === "fel") throw new Error(ev.meddelande);
+      else if (ev.typ === "klar") article = ev.artikel;
+    }
+    if (!article) throw new Error("Anslutningen bröts innan artikeln var klar. Försök igen.");
+    $$("#progress li:not(.skipped)").forEach((li) => { li.classList.remove("active"); li.classList.add("done"); });
+    $('#progress li[data-step="1"]').textContent = STEG_TEXT[1];
     setArticle(article);
-    toast(article.demo ? "Demoartikel skapad – AI kopplas in i nästa steg" : "Artikeln är klar");
+    toast(article.demo ? "Demotext – lägg in ANTHROPIC_API_KEY för AI-text" : "Artikeln är klar – granska och redigera");
   } catch (err) {
-    toast(err.message);
-    $("#progress").hidden = true;
+    toast(err.message || "Något gick fel");
+    $$("#progress li.active").forEach((li) => li.classList.replace("active", "failed"));
   } finally {
-    clearInterval(ticker);
+    clearInterval(timer);
+    btn.lastChild.textContent = " Generera artikel";
     btn.disabled = false;
     btn.classList.remove("loading");
   }
@@ -149,10 +191,22 @@ function setArticle(article) {
   state.sekundara = [...(article.sekundara_sokord || [])];
   renderChips();
   renderKeywords();
+  renderIntent();
   renderImages();
   renderSeo();
   renderPreview();
   save();
+}
+
+const INTENT_NAMN = { informativ: "Informativ", kommersiell: "Kommersiell", transaktionell: "Transaktionell", navigerande: "Navigerande" };
+
+function renderIntent() {
+  const si = state.article.sokintention;
+  $("#intentCard").hidden = !si;
+  if (!si) return;
+  $("#intentTyp").textContent = INTENT_NAMN[si.typ] || si.typ;
+  $("#intentBeskrivning").textContent = si.beskrivning;
+  $("#intentMalgrupp").textContent = si.malgrupp;
 }
 
 function renderKeywords() {
