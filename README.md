@@ -17,7 +17,8 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env             # fyll i nycklar när vi kommer till steg 2–4
+python scripts/spara_hemlighet.py   # lägger in ANTHROPIC_API_KEY säkert
+git config core.hooksPath scripts/git-hooks
 uvicorn app.main:app --reload
 ```
 
@@ -46,16 +47,47 @@ Prompten finns i `app/ai_writer.py` (`SYSTEMPROMPT`). Där justerar du ton, län
 - **SEO-kontroll:** kontrollerar bland annat sökord i H1, metadata, slug, första stycket, underrubriker, sekundära sökord, alt-texter och textlängd.
 - **WordPress-kod:** färdig kod för ett *Anpassad HTML*-block, med CSS:en inbäddad och scopad till `.kh-artikel`.
 
-## Säkerhet
+## Säkerhet och API-nycklar
 
-- API-nycklar och WordPress-uppgifter ligger bara i `.env` på servern. Webbläsaren får bara veta *om* en integration är konfigurerad, aldrig själva värdena.
-- `.env` är undantagen från git.
+### Lägg in nyckeln (rekommenderat sätt)
+
+```bash
+python scripts/spara_hemlighet.py              # frågar efter ANTHROPIC_API_KEY
+```
+
+Klistra in nyckeln när du får frågan. Inget syns på skärmen. Nyckeln sparas i `~/.config/klimathemmet-studio/ANTHROPIC_API_KEY`, som bara ditt konto kan läsa (`chmod 600`), och testas direkt mot Anthropic. Den hamnar inte i projektmappen, git, terminalhistoriken eller loggar. Starta sedan om servern.
+
+Samma skript fungerar för `OPENAI_API_KEY`, `WP_APP_PASSWORD` och `STUDIO_PASSWORD`.
+
+Servern letar efter en hemlighet i den här ordningen:
+1. miljövariabeln eller `.env`
+2. filen som `<NAMN>_FILE` pekar på (för Docker- eller systemd-secrets)
+3. `~/.config/klimathemmet-studio/<NAMN>`
+
+### Skydd som är inbyggt
+
+- Webbläsaren får bara veta *om* en integration är konfigurerad, aldrig själva värdena.
+- Hemligheterna visas aldrig i utskrifter av inställningsobjektet (`repr=False`).
+- `.env` är undantagen från git. Commit-spärren i `scripts/git-hooks/pre-commit` stoppar commits som innehåller `.env` eller något som ser ut som en API-nyckel. Aktivera den en gång per klon: `git config core.hooksPath scripts/git-hooks`.
 - Sätt `STUDIO_USER` och `STUDIO_PASSWORD` när appen körs på en server, så skyddas hela studion med lösenord.
 - Förhandsvisningen körs i en sandlådad iframe där skript är avstängda.
+
+### Claude Code på webben
+
+Lägg **inte** nyckeln under *Environment variables* i molnmiljön. De är synliga för alla som kan redigera miljön.
+
+Molnmiljön behöver inte nyckeln alls. Den används för att utveckla koden, och AI-flödet testas där mot ett låtsas-API. Själva appen körs på din dator eller din server, och där läggs nyckeln in enligt ovan.
+
+### Drift på en server
+
+Använd värdtjänstens egen hemlighetshantering, till exempel *Secrets* hos Render, Railway eller Fly.io, `systemd` med `LoadCredential=`, eller Docker secrets med `ANTHROPIC_API_KEY_FILE=/run/secrets/anthropic_api_key`. Kör alltid bakom HTTPS och med `STUDIO_USER` och `STUDIO_PASSWORD` satta.
 
 ## Struktur
 
 ```
+scripts/
+  spara_hemlighet.py   Sparar nycklar säkert utanför projektet
+  git-hooks/pre-commit Stoppar commits med nycklar
 app/
   main.py          FastAPI-server och API
   config.py        Läser inställningar och hemligheter från .env

@@ -1,12 +1,30 @@
-"""Serverinställningar. Hemligheter läses från miljön/.env och lämnar aldrig servern."""
+"""Serverinställningar. Hemligheter lämnar aldrig servern.
+
+En hemlighet, till exempel ANTHROPIC_API_KEY, hämtas i den här ordningen:
+1. Miljövariabeln, eller .env i projektmappen.
+2. En fil som miljövariabeln <NAMN>_FILE pekar på (Docker- eller systemd-secrets).
+3. Filen ~/.config/klimathemmet-studio/<NAMN>, som scripts/spara_hemlighet.py skapar.
+"""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+HEMLIGHETS_MAPP = Path(os.getenv("STUDIO_SECRETS_DIR", Path.home() / ".config" / "klimathemmet-studio"))
+
+
+def hemlighet(namn: str) -> str:
+    if varde := os.getenv(namn, "").strip():
+        return varde
+    sokvag = os.getenv(f"{namn}_FILE") or HEMLIGHETS_MAPP / namn
+    try:
+        return Path(sokvag).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 EFFORT_NIVAER = ("low", "medium", "high", "xhigh", "max")
@@ -14,15 +32,15 @@ EFFORT_NIVAER = ("low", "medium", "high", "xhigh", "max")
 
 @dataclass(frozen=True)
 class Settings:
-    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
+    anthropic_api_key: str = field(default_factory=lambda: hemlighet("ANTHROPIC_API_KEY"), repr=False)
     claude_model: str = os.getenv("STUDIO_CLAUDE_MODEL", "claude-opus-5-5")
     claude_effort: str = os.getenv("STUDIO_CLAUDE_EFFORT", "high")
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_api_key: str = field(default_factory=lambda: hemlighet("OPENAI_API_KEY"), repr=False)
     wp_url: str = os.getenv("WP_URL", "").rstrip("/")
     wp_user: str = os.getenv("WP_USER", "")
-    wp_app_password: str = os.getenv("WP_APP_PASSWORD", "")
+    wp_app_password: str = field(default_factory=lambda: hemlighet("WP_APP_PASSWORD"), repr=False)
     studio_user: str = os.getenv("STUDIO_USER", "")
-    studio_password: str = os.getenv("STUDIO_PASSWORD", "")
+    studio_password: str = field(default_factory=lambda: hemlighet("STUDIO_PASSWORD"), repr=False)
 
     def __post_init__(self):
         if self.claude_effort not in EFFORT_NIVAER:

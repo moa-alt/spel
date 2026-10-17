@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stoppar commits som innehåller API-nycklar eller .env-filer.
+# Aktiveras med: git config core.hooksPath scripts/git-hooks
+if git diff --cached --name-only | grep -E '(^|/)\.env$' >/dev/null; then
+  echo "Stopp: .env får inte committas." >&2
+  exit 1
+fi
+if git diff --cached -U0 | grep -E '^\+.*(sk-ant-[A-Za-z0-9_-]{20,}|sk-(proj-)?[A-Za-z0-9_-]{32,})' >/dev/null; then
+  echo "Stopp: commiten ser ut att innehålla en API-nyckel. Ta bort den och använd scripts/spara_hemlighet.py." >&2
+  exit 1
+fi
