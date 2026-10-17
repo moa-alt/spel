@@ -114,9 +114,19 @@ class GenereringsFel(Exception):
     """Fel med ett meddelande som kan visas för användaren."""
 
 
-def _anvandarprompt(huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None) -> str:
+def _anvandarprompt(huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None,
+                    lankmal: list[dict] | None = None) -> str:
     sek = "\n".join(f"- {s}" for s in sekundara) or "- (inga angivna, välj själv relevanta närliggande termer)"
     prompt = f"Skriv en komplett artikel.\n\nHuvudsökord: {huvudsokord}\n\nSekundära sökord:\n{sek}"
+    if lankmal:
+        mal = "\n".join(f"- {m['titel']}: {m['url']}" for m in lankmal)
+        prompt += (
+            "\n\nInternlänkar: lägg in 3–6 kontextuella länkar i brödtexten (<a href=\"URL\">ankartext</a>) där de "
+            "hjälper läsaren. Länka ENBART till adresserna nedan och skriv adressen exakt. Ankartexten ska vara naturlig, "
+            "beskrivande och varierad (aldrig ”klicka här” eller exakt samma fras flera gånger). Länka varje adress högst en "
+            "gång, inte i rubriker eller innehållsförteckningen. Passar ingen adress naturligt, länka färre. "
+            "De första adresserna är prioriterade.\n" + mal
+        )
     if andringar:
         prompt += f"\n\nRedaktören har granskat en tidigare version och begärt ändringar:\n<andringar>\n{andringar}\n</andringar>"
         if tidigare:
@@ -174,7 +184,8 @@ def _slutlig_text(message) -> str:
 
 
 async def generera_artikel(
-    huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None
+    huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None,
+    lankmal: list[dict] | None = None,
 ) -> AsyncIterator[dict]:
     client = anthropic.AsyncAnthropic(api_key=config.settings.anthropic_api_key, max_retries=3)
     yield {"typ": "steg", "steg": 0}
@@ -190,7 +201,7 @@ async def generera_artikel(
                 "format": {"type": "json_schema", "schema": ARTIKEL_SCHEMA},
             },
             system=[{"type": "text", "text": SYSTEMPROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": _anvandarprompt(huvudsokord, sekundara, andringar, tidigare)}],
+            messages=[{"role": "user", "content": _anvandarprompt(huvudsokord, sekundara, andringar, tidigare, lankmal)}],
             # Om modellen avböjer tar en reservmodell över automatiskt.
             extra_headers={"anthropic-beta": "server-side-fallback-2026-07-01"},
             extra_body={"fallbacks": "default"},

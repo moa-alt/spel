@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 
-from . import auth, config, db, jobb, publicering
+from . import auth, config, db, jobb, publicering, sajtkarta, seo_ai
 from .planering import MAX_SEKUNDARA, CsvFel, liknande, normalisera_sokord, tolka_csv
 from .publicering import PubliceringsFel
 from .render import wordpress_block
@@ -36,6 +36,8 @@ async def lifespan(_app: FastAPI):
     config.settings.kontrollera_produktion()
     db.init()
     publicering.init()
+    sajtkarta.init()
+    seo_ai.init()
     uppgift = asyncio.create_task(publicering.schemalaggare()) if config.settings.schemalaggare else None
     yield
     if uppgift:
@@ -126,6 +128,7 @@ class Article(BaseModel):
     huvudsokord: str = ""
     sekundara_sokord: list[str] = Field(default_factory=list)
     sokintention: dict | None = None
+    internlankar: list[dict] = Field(default_factory=list)
     demo: bool = False
 
 
@@ -244,6 +247,8 @@ def hamta_artikel(artikel_id: int):
     artikel = _hamta_eller_404(artikel_id)
     artikel = _med_extra(artikel, liknande(db.lista()))
     artikel["historik"] = db.historik(artikel_id)
+    artikel["lankplan"] = seo_ai.lankplan(artikel_id)
+    artikel["lankkontroll"] = seo_ai.lankkontroll((artikel["innehall"] or {}).get("html", ""))
     return artikel
 
 
@@ -458,6 +463,66 @@ def ladda_ner_sakerhetskopia():
     namn = f"klimathemmet-studio-{publicering.idag_lokalt().isoformat()}.db"
     return FileResponse(fil, filename=namn, media_type="application/octet-stream",
                         background=BackgroundTask(fil.unlink, missing_ok=True))
+
+
+# ---------- SEO-karta ----------
+
+class Kommersiell(BaseModel):
+    kommersiell: bool
+
+
+@app.get("/api/seokarta")
+def seokarta():
+    return {**sajtkarta.analysera(), "forslag": seo_ai.lista_forslag(), "wp_url": config.settings.wp_url,
+            "ai": bool(config.settings.anthropic_api_key)}
+
+
+@app.post("/api/seokarta/kartlagg")
+async def kartlagg():
+    """Läser hela sajten via REST API. Ändrar ingenting på sajten."""
+    try:
+        return await sajtkarta.kartlagg()
+    except sajtkarta.KartFel as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/api/seokarta/sida/{sida_id}")
+def seokarta_sida(sida_id: int):
+    d = sajtkarta.nod_detaljer(sida_id)
+    if d is None:
+        raise HTTPException(404, "Sidan finns inte i kartan.")
+    return d
+
+
+@app.post("/api/seokarta/sida/{sida_id}/kommersiell")
+def seokarta_kommersiell(sida_id: int, body: Kommersiell):
+    try:
+        sajtkarta.satt_kommersiell(sida_id, body.kommersiell)
+    except sajtkarta.KartFel as e:
+        raise HTTPException(404, str(e))
+    return {"kommersiell": body.kommersiell}
+
+
+@app.post("/api/seokarta/forslag")
+async def seokarta_forslag():
+    try:
+        return {"forslag": await seo_ai.foresla_artiklar()}
+    except seo_ai.ForslagsFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/seokarta/forslag/{forslag_id}/till-kon", status_code=201)
+def seokarta_till_kon(forslag_id: int):
+    try:
+        return {"artikel_id": seo_ai.till_kon(forslag_id)}
+    except seo_ai.ForslagsFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/seokarta/forslag/{forslag_id}/avvisa")
+def seokarta_avvisa_forslag(forslag_id: int):
+    seo_ai.avvisa(forslag_id)
+    return {"ok": True}
 
 
 # ---------- Gränssnitt ----------

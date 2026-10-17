@@ -213,3 +213,76 @@ def test_inloggning_och_publicering(skyddad_server, browser, enhet):
     page.wait_for_url("**/login")
     assert fel == []
     ctx.close()
+
+
+@pytest.fixture(scope="module")
+def sajt_server(tmp_path_factory):
+    """Låtsas-WordPress över HTTP och en studio som pekar på den."""
+    port = _ledig_port()
+    bas = f"http://127.0.0.1:{port}"
+    sajt = subprocess.Popen(
+        [sys.executable, "-c", "import sys, uvicorn; sys.path.insert(0, 'tests'); from falsk_sajt import asgi_app; "
+         f"uvicorn.run(asgi_app('{bas}'), port={port}, log_level='warning')"],
+        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    proc, url = _starta(tmp_path_factory.mktemp("e2e-seo"), WP_URL=bas)
+    yield url
+    for p in (proc, sajt):
+        p.terminate()
+        p.wait(timeout=10)
+
+
+@pytest.mark.parametrize("enhet", ["iphone", "surfplatta", "dator"])
+def test_seo_karta(sajt_server, browser, enhet):
+    ctx = browser.new_context(**ENHETER[enhet])
+    page = ctx.new_page()
+    fel = []
+    page.on("pageerror", lambda e: fel.append(str(e)))
+    page.goto(sajt_server)
+    page.click('.view-btn[data-view="seo"]')
+    page.locator("#mapBtn:not([disabled])").wait_for()
+    page.click("#mapBtn")
+    page.locator("#mapBtn:not([disabled])").wait_for()  # kartläggningen är klar
+    page.locator("#graph .nod").first.wait_for()
+    assert page.locator("#graph .nod").count() == 8
+    assert page.locator(".stat b").first.text_content() == "8"
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-7-seokarta")
+
+    # Klicka på pelarsidan i listan och se dess länkar.
+    page.locator("#nodeTable tr", has_text="Ventilation i gamla hus").first.click()
+    page.locator("#seoDetail h3", has_text="Ventilation i gamla hus").wait_for()
+    assert "Inkommande länkar (3)" in page.text_content("#seoDetail")
+    assert "trasig länk" in page.text_content("#seoDetail")
+
+    # Filtrera på sidor utan inkommande länkar.
+    page.select_option("#fStatus", "foraldralos")
+    assert page.locator("#nodeTable tr").count() == 3
+    assert page.locator("#graph .nod.dold").count() == 5
+    assert "Verifierat" in page.text_content("#seoContent") and "Beräknat" in page.text_content("#seoContent")
+    assert fel == []
+    ctx.close()
+
+
+def test_ny_artikel_far_internlankar_fran_kartan(sajt_server, browser):
+    ctx = browser.new_context(**ENHETER["dator"])
+    page = ctx.new_page()
+    page.goto(sajt_server)
+    page.click('.view-btn[data-view="seo"]')
+    if page.locator("#seoEmpty").is_visible():
+        page.click("#mapBtn")
+        page.locator("#seoContent").wait_for()
+    page.click('.view-btn[data-view="queue"]')
+    page.fill("#qHuvud", "ventilation och fukt")
+    page.click("#addForm button[type=submit]")
+    rad = page.locator(".q-item").filter(has=page.locator(".q-kw", has_text="ventilation och fukt"))
+    rad.locator("[data-act=generate]").click()
+    rad.locator("[data-act=open]").click()
+    page.locator("#statusBadge.s-granskas").wait_for()
+    page.click(".tab[data-tab=seo]")
+    assert page.locator("#linksCard").is_visible()
+    assert page.locator("#linksList li").count() >= 1
+    assert page.locator("#linksList li.bad").count() == 0
+    assert "internlänkar" in page.text_content("#checks")
+    _skarmbild(page, "dator-8-internlankar")
+    ctx.close()

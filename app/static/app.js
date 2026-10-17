@@ -213,12 +213,28 @@ function setArticle(article) {
   $("#htmlEditor").value = article.html;
   renderKeywords();
   renderIntent();
+  renderLinks();
   renderImages();
   renderSeo();
   renderPreview();
 }
 
 const INTENT_NAMN = { informativ: "Informativ", kommersiell: "Kommersiell", transaktionell: "Transaktionell", navigerande: "Navigerande" };
+
+function renderLinks() {
+  const rec = state.current;
+  const kontroll = rec?.lankkontroll || [];
+  const plan = rec?.lankplan || { lanka_fran: [], lanka_till: [] };
+  $("#linksCard").hidden = !kontroll.length && !plan.lanka_fran.length;
+  $("#linksList").innerHTML = kontroll.map((l) => `<li class="${l.finns === false ? "bad" : ""}">
+      <span>${esc(l.ankartext || "(ingen ankartext)")} → <a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url.replace(/^https?:\/\/[^/]+/, ""))}</a>
+      ${l.finns === false ? " – sidan finns inte i kartan" : ""}</span></li>`).join("") || `<li class="warn">Inga internlänkar ännu</li>`;
+  $("#linksPlan").innerHTML = plan.lanka_fran.length
+    ? `<strong>Föreslagna inkommande länkar</strong> <span class="tag tag-ai">AI-förslag</span>
+       <p class="muted">Befintliga artiklar som kan länka hit. Inga publicerade artiklar ändras utan ditt godkännande.</p>
+       <ul>${plan.lanka_fran.map((u) => `<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/[^/]+/, ""))}</a></li>`).join("")}</ul>`
+    : "";
+}
 
 function renderIntent() {
   const si = state.article.sokintention;
@@ -416,6 +432,12 @@ function renderChecks() {
     [altOk ? "ok" : "bad", "Alla bilder har alt-text"],
     [ord >= 800 ? "ok" : "warn", `Textlängd ${ord} ord (rek. 800+)`],
   ];
+  const lk = state.current?.lankkontroll;
+  if (lk && state.current.innehall?.html === a.html) {
+    const trasiga = lk.filter((l) => l.finns === false).length;
+    checks.push([lk.length >= 3 && lk.length <= 6 ? "ok" : "warn", `${lk.length} internlänkar (rek. 3–6)`]);
+    if (trasiga) checks.push(["bad", `${trasiga} länk${trasiga === 1 ? "" : "ar"} till sidor som inte finns`]);
+  }
   const okCount = checks.filter(([s]) => s === "ok").length;
   $("#score").textContent = `${Math.round((okCount / checks.length) * 100)}%`;
   $("#checks").innerHTML = checks.map(([s, t]) => `<li class="${s === "ok" ? "" : s}">${esc(t)}</li>`).join("");
@@ -483,10 +505,12 @@ function showView(view) {
   $("#queueView").hidden = view !== "queue";
   $("#editorView").hidden = view !== "editor";
   $("#pubView").hidden = view !== "pub";
+  $("#seoView").hidden = view !== "seo";
   $$(".view-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   remember(VIEW_KEY, view);
   if (view === "queue") loadQueue();
   if (view === "pub") loadPub();
+  if (view === "seo") loadSeo();
 }
 $$(".view-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 $("#backBtn").addEventListener("click", () => showView("queue"));
@@ -783,7 +807,7 @@ const HANDLING_NAMN = {
   publicering_simulerad: "Simulerad publicering", wp_utkast_skapat: "Utkast i WordPress", publicering_stoppad: "Publicering stoppad",
   publicering_misslyckad: "Publicering misslyckades", publicering_forsok: "Nytt försök planerat", publicering_missad: "Publiceringsdag missad",
   publicering_pausad: "Publicering pausad", publicering_aterupptagen: "Publicering återupptagen",
-  genererad: "Text genererad", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
+  genererad: "Text genererad", fran_seo_karta: "Från SEO-kartan", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
   andringar_begarda: "Ändringar begärda", avvisad: "Avvisad", aterstalld: "Återställd",
   godkannande_aterkallat: "Godkännande återkallat", godkannande_upphavt: "Godkännande upphävt",
 };
@@ -1013,11 +1037,345 @@ $("#wpCheckBtn").addEventListener("click", async () => {
   }
 });
 
+/* ---------- SEO-karta ---------- */
+const ROLL_NAMN = { pelare: "Pelarsida", stod: "Stödartikel", kategori: "Kategori" };
+const TYP_NAMN = { post: "Artikel", page: "Sida", kategori: "Kategori" };
+const seo = { data: null, pos: null, vald: null, vy: null, klusterNamn: {} };
+
+async function loadSeo() {
+  try { seo.data = await api("/api/seokarta"); } catch (err) { toast(err.message); return; }
+  const d = seo.data;
+  seo.klusterNamn = Object.fromEntries(d.kluster.map((k) => [k.id, k.namn]));
+  $("#aiBtn").disabled = !d.noder.length || !d.ai;
+  $("#aiBtn").title = d.ai ? "" : "Kräver ANTHROPIC_API_KEY på servern";
+  $("#mapBtn").disabled = !d.wp_url;
+  $("#seoMeta").textContent = d.kartlagd ? `Senast kartlagd ${formatTid(d.kartlagd)} · ${d.wp_url}` : "";
+  const tom = !d.noder.length;
+  $("#seoEmpty").hidden = !tom;
+  $("#seoContent").hidden = tom;
+  $("#seoEmptyText").textContent = d.wp_url
+    ? `Tryck på Kartlägg sajten för att läsa in ${d.wp_url}. Det tar en stund för en stor sajt, och ingenting ändras på sajten.`
+    : "Ange sajtens adress (WP_URL) på servern för att kunna kartlägga den.";
+  if (tom) { renderForslag(); return; }
+
+  const sel = $("#fKluster"), fore = sel.value;
+  sel.innerHTML = `<option value="">Alla kluster</option>` + d.kluster.map((k) => `<option value="${esc(k.id)}">${esc(k.namn)} (${k.antal})</option>`).join("");
+  sel.value = d.kluster.some((k) => k.id === fore) ? fore : "";
+  const v = d.verifierat;
+  const stats = [
+    [d.noder.length, "sidor"], [d.kanter.length, "fungerande internlänkar"], [d.kluster.length, "ämneskluster"],
+    [v.utan_inkommande.length, "utan inkommande länkar"], [v.trasiga_lankar.reduce((n, x) => n + x.lankar.length, 0), "trasiga länkar"],
+  ];
+  $("#seoStats").innerHTML = stats.map(([n, t]) => `<div class="stat"><b>${n.toLocaleString("sv-SE")}</b><span>${t}</span></div>`).join("");
+  layoutGraph();
+  renderGraph();
+  renderProblems();
+  renderForslag();
+  renderNodeTable();
+}
+
+function nodSynlig(n) {
+  const k = $("#fKluster").value, t = $("#fTyp").value, st = $("#fStatus").value;
+  if (k && n.kluster !== k) return false;
+  if (t && n.typ !== t) return false;
+  if (st === "pelare" && n.roll !== "pelare") return false;
+  if (st === "foraldralos" && !n.foraldralos) return false;
+  if (st === "trasiga" && !n.trasiga) return false;
+  if (st === "kommersiell" && !n.kommersiell) return false;
+  return true;
+}
+["#fKluster", "#fTyp", "#fStatus"].forEach((id) => $(id).addEventListener("change", () => { renderGraph(); renderNodeTable(); }));
+
+// Enkel kraftbaserad layout: kluster placeras runt en cirkel, länkar drar ihop, alla noder stöter bort varandra.
+function layoutGraph() {
+  const { noder, kanter, kluster } = seo.data;
+  const W = 1000, H = 700, n = noder.length;
+  const klIndex = Object.fromEntries(kluster.map((k, i) => [k.id, i]));
+  const centrum = kluster.map((_, i) => {
+    const vinkel = (i / Math.max(1, kluster.length)) * Math.PI * 2;
+    const r = kluster.length > 1 ? Math.min(W, H) * 0.32 : 0;
+    return [W / 2 + Math.cos(vinkel) * r, H / 2 + Math.sin(vinkel) * r];
+  });
+  let slump = 1;
+  const rnd = () => { slump = (slump * 16807) % 2147483647; return slump / 2147483647 - 0.5; };
+  const p = noder.map((nd) => { const c = centrum[klIndex[nd.kluster]] || [W / 2, H / 2]; return { x: c[0] + rnd() * 80, y: c[1] + rnd() * 80, vx: 0, vy: 0 }; });
+  const idx = Object.fromEntries(noder.map((nd, i) => [nd.id, i]));
+  const kant = kanter.map((k) => [idx[k.fran], idx[k.till]]).filter(([a, b]) => a !== undefined && b !== undefined);
+  const varv = n > 1200 ? 40 : n > 500 ? 90 : 220;
+  const k2 = 900;
+  for (let t = 0; t < varv; t++) {
+    const kyla = 1 - t / varv;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let dx = p[i].x - p[j].x, dy = p[i].y - p[j].y;
+        const d2 = Math.max(25, dx * dx + dy * dy);
+        if (d2 > 40000) continue;
+        const f = k2 / d2;
+        dx *= f; dy *= f;
+        p[i].vx += dx; p[i].vy += dy; p[j].vx -= dx; p[j].vy -= dy;
+      }
+    }
+    for (const [a, b] of kant) {
+      const dx = p[b].x - p[a].x, dy = p[b].y - p[a].y;
+      p[a].vx += dx * 0.01; p[a].vy += dy * 0.01; p[b].vx -= dx * 0.01; p[b].vy -= dy * 0.01;
+    }
+    noder.forEach((nd, i) => {
+      const c = centrum[klIndex[nd.kluster]] || [W / 2, H / 2];
+      p[i].vx += (c[0] - p[i].x) * 0.02; p[i].vy += (c[1] - p[i].y) * 0.02;
+      const steg = Math.min(12, Math.hypot(p[i].vx, p[i].vy)) * kyla;
+      const fart = Math.hypot(p[i].vx, p[i].vy) || 1;
+      p[i].x += (p[i].vx / fart) * steg; p[i].y += (p[i].vy / fart) * steg;
+      p[i].vx *= 0.5; p[i].vy *= 0.5;
+    });
+  }
+  const xs = p.map((q) => q.x), ys = p.map((q) => q.y);
+  const kant0 = 30;
+  // Extra marginal till höger för etiketterna.
+  seo.hel = [Math.min(...xs) - kant0, Math.min(...ys) - kant0, Math.max(...xs) - Math.min(...xs) + 2 * kant0 + 180, Math.max(...ys) - Math.min(...ys) + 2 * kant0];
+  seo.vy = [...seo.hel];
+  seo.pos = Object.fromEntries(noder.map((nd, i) => [nd.id, p[i]]));
+}
+
+function radie(nd) { return Math.min(16, 5 + Math.sqrt(nd.in) * 2.2) + (nd.roll === "pelare" ? 3 : 0); }
+
+// Kartans enheter per skärmpixel, så att noder och etiketter behåller sin storlek vid zoom och på mobil.
+function skala() {
+  const r = $("#graph").getBoundingClientRect();
+  return r.width ? Math.max(seo.vy[2] / r.width, seo.vy[3] / r.height) : 1;
+}
+function nodKlass(nd) { return nd.foraldralos ? "n-foraldralos" : `n-${nd.roll}`; }
+
+function renderGraph() {
+  const svg = $("#graph");
+  const { noder, kanter } = seo.data;
+  const pos = seo.pos;
+  const k = skala();
+  const valdaKanter = new Set();
+  if (seo.vald) kanter.forEach((k, i) => { if (k.fran === seo.vald || k.till === seo.vald) valdaKanter.add(i); });
+  const linjer = kanter.map((k, i) => {
+    const a = pos[k.fran], b = pos[k.till];
+    return a && b ? `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"${valdaKanter.has(i) ? ' class="aktiv"' : ""}/>` : "";
+  }).join("");
+  const noderSvg = noder.map((nd) => {
+    const q = pos[nd.id], r = radie(nd) * k;
+    const form = nd.typ === "kategori"
+      ? `<rect x="${(q.x - r).toFixed(1)}" y="${(q.y - r).toFixed(1)}" width="${2 * r}" height="${2 * r}" rx="3" class="${nodKlass(nd)}"/>`
+      : `<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${r.toFixed(1)}" class="${nodKlass(nd)}"/>`;
+    const etikett = nd.roll === "pelare" || nd.typ === "kategori" || nd.id === seo.vald
+      ? `<text x="${(q.x + r + 4 * k).toFixed(1)}" y="${(q.y + 4 * k).toFixed(1)}" font-size="${(12 * k).toFixed(2)}" stroke-width="${(3 * k).toFixed(2)}">${esc(nd.titel.length > 34 ? nd.titel.slice(0, 33) + "…" : nd.titel)}</text>` : "";
+    return `<g class="nod${nodSynlig(nd) ? "" : " dold"}${nd.id === seo.vald ? " vald" : ""}" data-id="${nd.id}" tabindex="0" role="button" aria-label="${esc(nd.titel)}">${form}${etikett}</g>`;
+  }).join("");
+  svg.innerHTML = `<g>${linjer}</g><g>${noderSvg}</g>`;
+  svg.setAttribute("viewBox", seo.vy.map((v) => v.toFixed(1)).join(" "));
+}
+
+function zooma(faktor, cx, cy) {
+  const [x, y, w, h] = seo.vy;
+  const nw = Math.min(seo.hel[2] * 3, Math.max(60, w * faktor)), nh = nw * (h / w);
+  cx = cx ?? x + w / 2; cy = cy ?? y + h / 2;
+  seo.vy = [cx - (cx - x) * (nw / w), cy - (cy - y) * (nh / h), nw, nh];
+  ritaSnart();
+}
+let ritning = 0;
+function ritaSnart() {
+  cancelAnimationFrame(ritning);
+  ritning = requestAnimationFrame(renderGraph);
+}
+window.addEventListener("resize", () => { if (seo.data && !$("#seoView").hidden) ritaSnart(); });
+function svgPunkt(e) {
+  const r = $("#graph").getBoundingClientRect(), [x, y, w, h] = seo.vy;
+  // viewBox bevarar proportionerna (xMidYMid meet): räkna med den skala som faktiskt används.
+  const s = Math.max(w / r.width, h / r.height);
+  return [x + w / 2 + (e.clientX - r.left - r.width / 2) * s, y + h / 2 + (e.clientY - r.top - r.height / 2) * s, s];
+}
+$("#zoomIn").addEventListener("click", () => zooma(0.7));
+$("#zoomOut").addEventListener("click", () => zooma(1.4));
+$("#zoomReset").addEventListener("click", () => { seo.vy = [...seo.hel]; zooma(1); });
+$("#graph").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const [px, py] = svgPunkt(e);
+  zooma(e.deltaY > 0 ? 1.15 : 0.87, px, py);
+}, { passive: false });
+
+// Panorering med mus eller ett finger, nyp-zoom med två fingrar.
+const pekare = new Map();
+let flyttad = false;
+$("#graph").addEventListener("pointerdown", (e) => {
+  pekare.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  flyttad = false;
+  $("#graph").setPointerCapture(e.pointerId);
+});
+$("#graph").addEventListener("pointermove", (e) => {
+  const fore = pekare.get(e.pointerId);
+  if (!fore) return visaTips(e);
+  if (pekare.size === 2) {
+    const [a, b] = [...pekare.values()];
+    const avstand = Math.hypot(a.x - b.x, a.y - b.y);
+    pekare.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const [c, d] = [...pekare.values()];
+    const nytt = Math.hypot(c.x - d.x, c.y - d.y);
+    if (avstand && nytt) zooma(avstand / nytt);
+    flyttad = true;
+    return;
+  }
+  const [, , s] = svgPunkt(e);
+  const dx = (e.clientX - fore.x) * s, dy = (e.clientY - fore.y) * s;
+  if (Math.abs(e.clientX - fore.x) + Math.abs(e.clientY - fore.y) > 3) flyttad = true;
+  pekare.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (flyttad) {
+    $("#graph").classList.add("drar");
+    seo.vy[0] -= dx; seo.vy[1] -= dy;
+    $("#graph").setAttribute("viewBox", seo.vy.map((v) => v.toFixed(1)).join(" "));
+  }
+});
+["pointerup", "pointercancel"].forEach((t) => $("#graph").addEventListener(t, (e) => {
+  pekare.delete(e.pointerId);
+  $("#graph").classList.remove("drar");
+  if (t === "pointerup" && !flyttad) {
+    const g = document.elementFromPoint(e.clientX, e.clientY)?.closest(".nod");
+    if (g) valjNod(Number(g.dataset.id));
+  }
+}));
+$("#graph").addEventListener("pointerleave", () => { $("#graphTip").hidden = true; });
+$("#graph").addEventListener("keydown", (e) => {
+  const g = e.target.closest?.(".nod");
+  if (g && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); valjNod(Number(g.dataset.id)); }
+});
+
+function visaTips(e) {
+  const g = e.target.closest?.(".nod"), tip = $("#graphTip");
+  if (!g) { tip.hidden = true; return; }
+  const nd = seo.data.noder.find((n) => n.id === Number(g.dataset.id));
+  const r = $(".graph-wrap").getBoundingClientRect();
+  tip.innerHTML = `<strong>${esc(nd.titel)}</strong><br>${ROLL_NAMN[nd.roll]} · ${esc(seo.klusterNamn[nd.kluster] || "")}<br>${nd.in} in · ${nd.ut} ut${nd.trasiga ? ` · ${nd.trasiga} trasiga` : ""}`;
+  tip.hidden = false;
+  tip.style.left = `${Math.min(r.width - 250, e.clientX - r.left + 12)}px`;
+  tip.style.top = `${e.clientY - r.top + 12}px`;
+}
+
+async function valjNod(id) {
+  seo.vald = id;
+  renderGraph();
+  const panel = $("#seoDetail");
+  panel.innerHTML = `<p class="muted">Hämtar…</p>`;
+  let d;
+  try { d = await api(`/api/seokarta/sida/${id}`); } catch (err) { panel.innerHTML = `<p class="muted">${esc(err.message)}</p>`; return; }
+  const nd = seo.data.noder.find((n) => n.id === id);
+  const lank = (url, text) => `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>`;
+  const ut = d.utgaende.map((l) => `<li class="${l.status === "trasig" ? "trasig" : ""}">${l.till_id ? `<button class="lank" type="button" data-nod="${l.till_id}">${esc(l.titel)}</button>` : esc(l.till_url)}
+      <span class="ank">”${esc(l.ankartext)}”${l.status === "trasig" ? " · trasig länk (404)" : l.status === "okand" ? " · okänd sida" : ""}</span></li>`).join("");
+  const inn = d.inkommande.map((l) => `<li><button class="lank" type="button" data-nod="${l.fran_id}">${esc(l.titel)}</button><span class="ank">”${esc(l.ankartext)}”</span></li>`).join("");
+  panel.innerHTML = `
+    <h3>${esc(d.titel)}</h3>
+    <div class="url">${lank(d.url, d.url)}</div>
+    <dl>
+      <dt>Typ</dt><dd>${TYP_NAMN[d.typ]} · ${ROLL_NAMN[nd.roll]}</dd>
+      <dt>Kluster</dt><dd>${esc(seo.klusterNamn[nd.kluster] || "")}</dd>
+      ${d.typ !== "kategori" ? `<dt>Längd</dt><dd>${d.ord.toLocaleString("sv-SE")} ord</dd>` : ""}
+      ${d.seo_titel != null ? `<dt>SEO-titel</dt><dd>${esc(d.seo_titel)} <span class="muted">(${d.seo_titel.length} tecken)</span></dd>` : ""}
+      ${d.seo_beskrivning != null ? `<dt>Metabeskrivning</dt><dd>${d.seo_beskrivning ? `${esc(d.seo_beskrivning)} <span class="muted">(${d.seo_beskrivning.length} tecken)</span>` : `<span style="color:var(--bad)">Saknas</span>`}</dd>` : ""}
+    </dl>
+    <label class="toggle"><input type="checkbox" id="kommersiellToggle" ${nd.kommersiell ? "checked" : ""}><span class="toggle-track"><span class="toggle-thumb"></span></span>Viktig kommersiell sida</label>
+    <h4>Inkommande länkar (${d.inkommande.length})</h4>
+    <ul class="link-list">${inn || `<li>Inga – sidan saknar inkommande internlänkar.</li>`}</ul>
+    <h4>Utgående länkar (${d.utgaende.length})</h4>
+    <ul class="link-list">${ut || "<li>Inga.</li>"}</ul>`;
+  $("#kommersiellToggle").addEventListener("change", async (e) => {
+    try { await api(`/api/seokarta/sida/${id}/kommersiell`, { kommersiell: e.target.checked }); await loadSeo(); valjNod(id); }
+    catch (err) { toast(err.message); }
+  });
+  if (matchMedia("(max-width: 1079px)").matches) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+$("#seoView").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-nod]");
+  if (b) valjNod(Number(b.dataset.nod));
+});
+
+function renderProblems() {
+  const { verifierat: v, beraknat: b } = seo.data;
+  const lista = (rubrik, rader, tomText) => `<div class="problem"><h3>${rubrik} <b>${rader.length}</b></h3>
+    <ul>${rader.length ? rader.join("") : `<li class="tom">${tomText}</li>`}</ul></div>`;
+  const nodLank = (id, titel) => `<button class="lank" type="button" data-nod="${id}">${esc(titel)}</button>`;
+  $("#verifierat").innerHTML = [
+    lista("Trasiga internlänkar", v.trasiga_lankar.flatMap((x) => x.lankar.map((l) => `<li>${nodLank(x.id, x.titel)} → ${esc(l.url)} <span class="muted">(”${esc(l.ankartext)}”)</span></li>`)), "Inga trasiga länkar hittades."),
+    lista("Saknar inkommande länkar", v.utan_inkommande.map((x) => `<li>${nodLank(x.id, x.titel)}</li>`), "Alla sidor har inkommande länkar."),
+    lista("Saknar metabeskrivning", v.saknar_metabeskrivning.map((x) => `<li>${nodLank(x.id, x.titel)}</li>`), "Inga (eller SEO-pluginet exponerar inte fältet)."),
+  ].join("");
+  $("#beraknat").innerHTML = [
+    lista("Möjlig kannibalisering", b.mojlig_kannibalisering.map((x) => `<li>${nodLank(x.a, x.a_titel)} och ${nodLank(x.b, x.b_titel)} <span class="muted">(${Math.round(x.likhet * 100)} % lika)</span></li>`), "Inga snarlika titlar."),
+    lista("Närliggande artiklar utan länk", b.saknade_lankar.map((x) => `<li>${nodLank(x.a, x.a_titel)} ↔ ${nodLank(x.b, x.b_titel)}</li>`), "Inga uppenbara luckor."),
+    lista("Kommersiella sidor med få länkar", b.svaga_kommersiella.map((x) => `<li>${nodLank(x.id, x.titel)} <span class="muted">(${x.in} inkommande)</span></li>`), "Markera viktiga kommersiella sidor i detaljpanelen."),
+  ].join("");
+}
+
+function renderForslag() {
+  const f = seo.data?.forslag || [];
+  const titel = Object.fromEntries((seo.data?.noder || []).map((n) => [n.url, n.titel]));
+  const urlLista = (urler) => urler.map((u) => esc(titel[u] || u)).join(", ");
+  $("#forslag").innerHTML = f.length ? f.map((x) => `
+    <article class="forslag-kort">
+      <span class="kl">${esc(x.kluster)} · ${esc(x.sokintention || "")}</span>
+      <h3>${esc(x.huvudsokord)}</h3>
+      ${x.sekundara_sokord.length ? `<div class="chips">${x.sekundara_sokord.map((s) => `<span class="chip">${esc(s)}</span>`).join("")}</div>` : ""}
+      <p>${esc(x.motivering)}</p>
+      ${x.lanka_till.length ? `<div class="rad"><b>Länkar till:</b> ${urlLista(x.lanka_till)}</div>` : ""}
+      ${x.lanka_fran.length ? `<div class="rad"><b>Kan länkas från:</b> ${urlLista(x.lanka_fran)}</div>` : ""}
+      ${x.krockar_med.length ? `<div class="varning">Kan konkurrera med: ${x.krockar_med.map(esc).join(", ")}</div>` : ""}
+      ${x.borttagna_lankar ? `<div class="rad">${x.borttagna_lankar} föreslagna adresser fanns inte på sajten och togs bort.</div>` : ""}
+      <div class="knappar">
+        <button class="btn btn-primary btn-sm" type="button" data-tillkon="${x.id}">Lägg i artikelkön</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-avvisa-forslag="${x.id}">Avvisa</button>
+      </div>
+    </article>`).join("") : `<p class="muted">Inga förslag ännu. Tryck på Föreslå nya artiklar när sajten är kartlagd.</p>`;
+}
+$("#forslag").addEventListener("click", async (e) => {
+  const till = e.target.dataset.tillkon, bort = e.target.dataset.avvisaForslag;
+  try {
+    if (till) { await api(`/api/seokarta/forslag/${till}/till-kon`, {}); toast("Ämnet ligger nu i artikelkön som utkast"); }
+    else if (bort) { await api(`/api/seokarta/forslag/${bort}/avvisa`, {}); }
+    else return;
+    await loadSeo();
+  } catch (err) { toast(err.message); }
+});
+
+function renderNodeTable() {
+  const synliga = seo.data.noder.filter(nodSynlig).sort((a, b) => b.in - a.in);
+  $("#nodeCount").textContent = `${synliga.length} av ${seo.data.noder.length}`;
+  $("#nodeTable").innerHTML = synliga.slice(0, 500).map((n) => `<tr data-nod="${n.id}">
+      <td>${esc(n.titel)}${n.foraldralos ? ` <span class="tag tag-warn">utan inkommande</span>` : ""}${n.kommersiell ? ` <span class="tag tag-ai">kommersiell</span>` : ""}</td>
+      <td>${esc(seo.klusterNamn[n.kluster] || "")}</td><td>${ROLL_NAMN[n.roll]}</td>
+      <td class="num">${n.in}</td><td class="num">${n.ut}</td><td class="num">${n.trasiga || ""}</td></tr>`).join("");
+}
+
+$("#mapBtn").addEventListener("click", async () => {
+  const btn = $("#mapBtn");
+  btn.disabled = true;
+  btn.textContent = "Kartlägger…";
+  try {
+    const r = await api("/api/seokarta/kartlagg", {});
+    toast(`Klart: ${r.sidor} sidor och ${r.lankar} internlänkar inlästa`);
+    seo.vald = null;
+    await loadSeo();
+  } catch (err) { toast(err.message); }
+  finally { btn.textContent = "Kartlägg sajten"; btn.disabled = false; }
+});
+$("#aiBtn").addEventListener("click", async () => {
+  const btn = $("#aiBtn");
+  btn.disabled = true;
+  btn.textContent = "AI analyserar…";
+  try {
+    const r = await api("/api/seokarta/forslag", {});
+    toast(`${r.forslag.length} nya förslag`);
+    await loadSeo();
+  } catch (err) { toast(err.message); }
+  finally { btn.textContent = "Föreslå nya artiklar"; btn.disabled = false; }
+});
+
 /* ---------- Start ---------- */
 loadStatus();
 (async () => {
   await loadQueue();
   const senaste = Number(recall("kh-studio-artikel"));
   if (senaste && state.queue.some((a) => a.id === senaste)) await openArticle(senaste, { keepView: true });
-  showView(["editor", "pub"].includes(recall(VIEW_KEY)) ? recall(VIEW_KEY) : "queue");
+  showView(["editor", "pub", "seo"].includes(recall(VIEW_KEY)) ? recall(VIEW_KEY) : "queue");
 })();

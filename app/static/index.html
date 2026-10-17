@@ -28,6 +28,7 @@
     <nav class="views" aria-label="Vyer">
       <button class="view-btn active" data-view="queue" type="button">Artikelkö <span class="view-count" id="queueCount"></span></button>
       <button class="view-btn" data-view="editor" type="button">Editor</button>
+      <button class="view-btn" data-view="seo" type="button">SEO-karta</button>
       <button class="view-btn" data-view="pub" type="button">Publicering</button>
     </nav>
     <div class="status" id="status" aria-label="Integrationer">
@@ -75,6 +76,97 @@
     <div class="empty queue-empty" id="queueEmpty" hidden>
       <h1>Kön är tom</h1>
       <p>Lägg till ett huvudsökord ovan eller importera en CSV-fil med en artikel per rad. Format: <code>huvudsökord;sekundärt 1, sekundärt 2</code></p>
+    </div>
+  </div>
+
+  <!-- SEO-karta -->
+  <div class="queue-view seo-view" id="seoView" hidden>
+    <div class="queue-head">
+      <div>
+        <h1>SEO-karta</h1>
+        <p class="muted">Ämneskluster, pelarsidor och internlänkar på klimathemmet.se. Kartläggningen läser bara från sajten och ändrar ingenting.</p>
+        <p class="muted seo-meta" id="seoMeta"></p>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost" id="mapBtn" type="button">Kartlägg sajten</button>
+        <button class="btn btn-primary" id="aiBtn" type="button">Föreslå nya artiklar</button>
+      </div>
+    </div>
+
+    <div class="empty seo-empty" id="seoEmpty" hidden>
+      <h1>Ingen karta ännu</h1>
+      <p id="seoEmptyText"></p>
+    </div>
+
+    <div id="seoContent" hidden>
+      <div class="stats" id="seoStats"></div>
+
+      <div class="seo-filters" role="group" aria-label="Filter">
+        <label class="field"><span class="label">Ämneskluster</span><select id="fKluster"></select></label>
+        <label class="field"><span class="label">Typ</span>
+          <select id="fTyp">
+            <option value="">Alla typer</option><option value="post">Artiklar</option><option value="page">Sidor</option><option value="kategori">Kategorier</option>
+          </select></label>
+        <label class="field"><span class="label">SEO-status</span>
+          <select id="fStatus">
+            <option value="">Alla</option><option value="pelare">Pelarsidor</option><option value="foraldralos">Saknar inkommande länkar</option>
+            <option value="trasiga">Har trasiga länkar</option><option value="kommersiell">Kommersiella sidor</option>
+          </select></label>
+      </div>
+
+      <div class="seo-main">
+        <section class="card graph-card">
+          <div class="graph-tools">
+            <ul class="legend" aria-label="Förklaring">
+              <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" class="n-pelare"/></svg>Pelarsida</li>
+              <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" class="n-stod"/></svg>Stödartikel</li>
+              <li><svg width="14" height="14" aria-hidden="true"><rect x="2" y="2" width="10" height="10" rx="2" class="n-kategori"/></svg>Kategori</li>
+              <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" class="n-foraldralos"/></svg>Saknar inkommande länkar</li>
+            </ul>
+            <div class="zoom">
+              <button class="btn btn-ghost btn-icon" id="zoomIn" type="button" aria-label="Zooma in">+</button>
+              <button class="btn btn-ghost btn-icon" id="zoomOut" type="button" aria-label="Zooma ut">−</button>
+              <button class="btn btn-ghost btn-sm" id="zoomReset" type="button">Hela kartan</button>
+            </div>
+          </div>
+          <div class="graph-wrap">
+            <svg id="graph" role="img" aria-label="Karta över sidor och internlänkar"></svg>
+            <div class="graph-tip" id="graphTip" hidden></div>
+          </div>
+          <p class="muted graph-help">Klicka på en sida för detaljer. Dra för att flytta, scrolla eller nyp för att zooma. Storleken visar antal inkommande länkar.</p>
+        </section>
+        <section class="card seo-detail" id="seoDetail">
+          <p class="muted">Välj en sida på kartan eller i listan.</p>
+        </section>
+      </div>
+
+      <section class="card seo-section">
+        <h2 class="card-title">Verifierade problem <span class="tag tag-ok">Verifierat</span></h2>
+        <p class="muted pub-text">Mätt direkt i sajtens innehåll vid senaste kartläggningen.</p>
+        <div class="problem-grid" id="verifierat"></div>
+      </section>
+
+      <section class="card seo-section">
+        <h2 class="card-title">Bedömningar att kontrollera <span class="tag tag-warn">Beräknat</span></h2>
+        <p class="muted pub-text">Beräknat från likhet mellan titlar och adresser. Kontrollera innan du agerar.</p>
+        <div class="problem-grid" id="beraknat"></div>
+      </section>
+
+      <section class="card seo-section">
+        <h2 class="card-title">Nya artiklar som stärker klustren <span class="tag tag-ai">AI-förslag</span></h2>
+        <p class="muted pub-text">Förslag från AI utifrån kartan. Inga sökvolymer eller konkurrensvärden anges, eftersom de inte går att verifiera här. Föreslagna länkar pekar bara på sidor som finns.</p>
+        <div class="forslag" id="forslag"></div>
+      </section>
+
+      <section class="card seo-section">
+        <h2 class="card-title">Alla sidor <span class="muted seo-count" id="nodeCount"></span></h2>
+        <div class="table-wrap">
+          <table class="node-table">
+            <thead><tr><th>Sida</th><th>Kluster</th><th>Roll</th><th class="num">In</th><th class="num">Ut</th><th class="num">Trasiga</th></tr></thead>
+            <tbody id="nodeTable"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -273,6 +365,11 @@
                 <span class="label">Sökord</span>
                 <div class="chips" id="kwSummary"></div>
               </div>
+            </div>
+            <div class="card links-card" id="linksCard" hidden>
+              <span class="label">Internlänkar i artikeln</span>
+              <ul class="checks" id="linksList"></ul>
+              <div id="linksPlan"></div>
             </div>
             <div class="card intent" id="intentCard" hidden>
               <span class="label">Sökintention <span class="intent-typ" id="intentTyp"></span></span>

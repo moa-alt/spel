@@ -14,7 +14,38 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 | 6 | Schemaläggning: startdatum, klockslag (Europe/Stockholm), ett godkänt inlägg per dag, `status=future` i WordPress, kalender, ändra datum, pausa, återkalla före publicering, skydd mot dubbelpublicering, kontroll att WordPress verkligen publicerat | Planerat |
 | 3b | **Ny design och mobilanpassning:** skandinaviskt ljust tema, mobile-first, granskningsvy för mobil, godkännande med bekräftelse | ✅ |
 | 6–7 | **Molndrift och publicering:** inloggning med sessioner, HTTPS, schemaläggare på servern (en artikel per dag, svensk tid), kalender, paus, ändra datum, skydd mot dubbelpublicering och ändrat innehåll, WordPress-klient och tilläggsplugin, nattliga säkerhetskopior, publiceringslogg, Docker och Fly.io. Se [DRIFT.md](DRIFT.md). | ✅ Förberett, inte driftsatt |
-| 8 | Internlänkningsmotor | Nästa |
+| 8 | **SEO-karta och internlänkar (del A–C):** kartläggning av sajten via REST API, interaktiv karta med ämneskluster och pelarsidor, filter, verifierade problem, beräknade bedömningar, AI-förslag på nya artiklar som läggs i kön, verifierade internlänkar i nya artiklar | ✅ |
+| 9 | **Internlänkar del D:** inkommande länkar i publicerade artiklar med godkännande, förhandsgranskning, ändringshistorik och återställning; omkartläggning efter publicering | Nästa |
+
+## SEO-karta
+
+Fliken **SEO-karta** visar hur klimathemmet.se hänger ihop.
+
+1. **Kartlägg sajten** läser publicerade artiklar, sidor och kategorier via WordPress öppna REST API. Kartläggningen ändrar ingenting på sajten. Det enda som behövs är `WP_URL`; inloggningsuppgifter används om de finns. Länkar som inte pekar på en känd sida kontrolleras: svarar sidan 404 eller 410 räknas länken som trasig.
+2. **Kartan** visar varje sida som en nod och varje fungerande internlänk som en linje.
+   - Färg och form visar sidans roll: pelarsida (grön med ring), stödartikel (ljusgrön), kategori (blå kvadrat) och sida utan inkommande länkar (orange med streckad kant).
+   - Storleken visar antalet inkommande länkar.
+   - Klicka på en sida för att se titel, SEO-titel och metabeskrivning från Yoast samt inkommande och utgående länkar med ankartexter. Där kan du också markera sidan som en viktig kommersiell sida.
+   - Du kan filtrera på kluster, typ och SEO-status. Listan *Alla sidor* visar samma uppgifter i tabellform.
+3. **Resultaten är uppdelade efter hur säkra de är:**
+   - **Verifierat** mäts direkt i innehållet: trasiga internlänkar, sidor utan inkommande länkar och saknad metabeskrivning.
+   - **Beräknat** bygger på textlikhet och ska kontrolleras: möjlig kannibalisering, närliggande artiklar som inte länkar till varandra och kommersiella sidor med få länkar. Klustren för artiklar kommer från deras första kategori. Sidor och pelarsidor bedöms utifrån likhet och länkar.
+   - **AI-förslag** är nya artiklar som stärker klustren. Varje förslag har huvud- och sekundärsökord, sökintention, motivering och föreslagna länkar i båda riktningarna. Det innehåller inga sökvolymer eller konkurrensvärden. Adresser som inte finns på sajten tas bort, och förslag som liknar befintliga artiklar eller sökord i kön markeras. **Lägg i artikelkön** skapar ett utkast som går igenom samma granskningsflöde som alla andra artiklar.
+4. **Internlänkar i nya artiklar:**
+   - Vid generering får AI:n bara länka till sidor från den senaste kartläggningen. Först kommer länkar som planerats via ett förslag, sedan de mest relevanta sidorna, med kommersiella sidor och kategorier prioriterade.
+   - Efter genereringen tas alla länkar till andra adresser bort, och varje adress länkas högst en gång.
+   - SEO-fliken i editorn visar artikelns internlänkar, om målsidorna finns och vilka befintliga artiklar som föreslås länka hit.
+   - Inga publicerade artiklar ändras. Det kommer i del D, och då bara efter ditt godkännande.
+
+### Kontrollera resultatet
+
+1. Sätt `WP_URL=https://klimathemmet.se` i `.env` och starta appen. Inget mer behövs för att läsa sajten.
+2. Öppna **SEO-karta** och tryck på **Kartlägg sajten**. Kontrollera ett par sidor mot sajten:
+   - Stämmer antalet inkommande länkar?
+   - Leder de trasiga länkarna verkligen till 404?
+   - Är det rätt pelarsida i varje kluster?
+3. Markera viktiga kommersiella sidor, till exempel offert- eller kontaktsidor, i detaljpanelen.
+4. Tryck på **Föreslå nya artiklar** (kräver `ANTHROPIC_API_KEY`), lägg ett förslag i kön och generera det. Kontrollera sedan i editorns SEO-flik att alla länkar har grön bock.
 
 ## Granskningsflödet
 
@@ -171,6 +202,11 @@ app/
   ai_writer.py     Prompt och anrop till Claude
   db.py            SQLite: artikelkö och granskningslogg
   jobb.py          Generering i bakgrunden (max 2 samtidigt)
+  auth.py          Inloggning, sessioner och säkerhetsrubriker
+  publicering.py   Publiceringskö, schemaläggare och säkerhetskopior
+  wordpress.py     WordPress REST API-klient
+  sajtkarta.py     Kartläggning av sajten och länkanalys
+  seo_ai.py        AI-förslag och kontroll av internlänkar
   planering.py     CSV-import och kontroll av liknande sökord
   sanitize.py      Rensar AI:ns HTML med en tillåtelselista
   demo.py          Demoartikel när ingen API-nyckel finns

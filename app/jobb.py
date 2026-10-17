@@ -5,9 +5,10 @@ Förloppet hålls i minnet; resultatet sparas i databasen.
 """
 
 import asyncio
+import html
 import logging
 
-from . import db
+from . import db, seo_ai
 from .ai_writer import GenereringsFel, generera_artikel
 from . import config
 from .demo import build_demo_article
@@ -48,11 +49,16 @@ async def _kor(artikel_id: int) -> None:
             andringar = artikel["andringar"]
             tidigare = artikel["innehall"] if andringar else None
             forlopp[artikel_id] = {"steg": 0, "tecken": 0}
+            # Internlänkar: bara sidor som finns i den senaste kartläggningen av sajten.
+            lankmal = seo_ai.lankmal_for(artikel)
             if not config.settings.anthropic_api_key:
                 resultat = build_demo_article(huvud, sek)
+                if lankmal:
+                    lista = "".join(f'<li><a href="{html.escape(m["url"])}">{html.escape(m["titel"])}</a></li>' for m in lankmal[:3])
+                    resultat["html"] += f"\n<h2 id=\"las-mer\">Läs mer</h2>\n<ul>{lista}</ul>"
             else:
                 resultat = None
-                async for h in generera_artikel(huvud, sek, andringar=andringar, tidigare=tidigare):
+                async for h in generera_artikel(huvud, sek, andringar=andringar, tidigare=tidigare, lankmal=lankmal):
                     if h["typ"] == "steg":
                         forlopp[artikel_id]["steg"] = h["steg"]
                     elif h["typ"] == "framsteg":
@@ -61,6 +67,8 @@ async def _kor(artikel_id: int) -> None:
                         resultat = h["artikel"]
                 if resultat is None:
                     raise GenereringsFel("Genereringen avslutades utan resultat. Försök igen.")
+            resultat["html"], resultat["internlankar"] = seo_ai.kontrollera_lankar(
+                resultat["html"], {m["url"] for m in lankmal})
             db.byt_status(artikel_id, ("genereras",), "granskas", innehall=resultat, fel=None, andringar=None)
             db.logga(artikel_id, "genererad", "Med begärda ändringar" if andringar else None, db.innehall_hash(resultat))
     except GenereringsFel as e:
