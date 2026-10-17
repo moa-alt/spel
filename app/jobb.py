@@ -9,7 +9,7 @@ import logging
 
 from . import db
 from .ai_writer import GenereringsFel, generera_artikel
-from .config import settings
+from . import config
 from .demo import build_demo_article
 
 log = logging.getLogger("studio.jobb")
@@ -48,7 +48,7 @@ async def _kor(artikel_id: int) -> None:
             andringar = artikel["andringar"]
             tidigare = artikel["innehall"] if andringar else None
             forlopp[artikel_id] = {"steg": 0, "tecken": 0}
-            if not settings.anthropic_api_key:
+            if not config.settings.anthropic_api_key:
                 resultat = build_demo_article(huvud, sek)
             else:
                 resultat = None

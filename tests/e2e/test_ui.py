@@ -33,23 +33,37 @@ def _ledig_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.fixture(scope="module")
-def server(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("e2e")
+def _starta(tmp, **extra):
     port = _ledig_port()
-    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "STUDIO_USER", "STUDIO_PASSWORD")}
-    env.update(STUDIO_DB=str(tmp / "e2e.db"), STUDIO_SECRETS_DIR=str(tmp / "secrets"), STUDIO_CLAUDE_EFFORT="high")
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ANTHROPIC_API_KEY", "STUDIO_USER", "STUDIO_PASSWORD", "WP_URL", "STUDIO_PUBLICERING")}
+    env.update(STUDIO_DATA=str(tmp), STUDIO_DB=str(tmp / "e2e.db"), STUDIO_SECRETS_DIR=str(tmp / "secrets"),
+               STUDIO_CLAUDE_EFFORT="high", **extra)
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)],
         cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
-    url = f"http://127.0.0.1:{port}"
     for _ in range(100):
         try:
             socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
             break
         except OSError:
             time.sleep(0.1)
+    return proc, f"http://127.0.0.1:{port}"
+
+
+@pytest.fixture(scope="module")
+def server(tmp_path_factory):
+    proc, url = _starta(tmp_path_factory.mktemp("e2e"))
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+@pytest.fixture(scope="module")
+def skyddad_server(tmp_path_factory):
+    proc, url = _starta(tmp_path_factory.mktemp("e2e-login"), STUDIO_USER="moa",
+                        STUDIO_PASSWORD="ett-langt-losenord", STUDIO_SESSION_SECRET="x" * 40)
     yield url
     proc.terminate()
     proc.wait(timeout=10)
@@ -104,7 +118,13 @@ def test_granskningsflode(server, browser, enhet):
     # Öppna artikeln för granskning.
     rad.locator("[data-act=open]").click()
     page.locator("#statusBadge.s-granskas").wait_for()
-    page.wait_for_function("document.querySelector('#previewFrame').offsetHeight > 1200")
+    # Vänta tills förhandsvisningen vuxit till artikelns höjd (wait_for_function stoppas av sidans CSP).
+    for _ in range(100):
+        if page.eval_on_selector("#previewFrame", "e => e.offsetHeight") > 1200:
+            break
+        page.wait_for_timeout(50)
+    else:
+        pytest.fail("förhandsvisningen fick aldrig artikelns höjd")
     _ingen_sidscroll(page)
     knapp = page.locator("#approveBtn")
     assert knapp.is_visible()
@@ -138,5 +158,58 @@ def test_granskningsflode(server, browser, enhet):
     # Tillbaka till kön.
     page.click("#backBtn")
     page.locator("#queueView").wait_for()
+    assert fel == []
+    ctx.close()
+
+
+@pytest.mark.parametrize("enhet", ["iphone", "dator"])
+def test_inloggning_och_publicering(skyddad_server, browser, enhet):
+    ctx = browser.new_context(**ENHETER[enhet])
+    page = ctx.new_page()
+    fel = []
+    page.on("pageerror", lambda e: fel.append(str(e)))
+    page.on("dialog", lambda d: d.accept())
+
+    page.goto(skyddad_server)
+    assert page.url.endswith("/login")
+    page.fill("#user", "moa")
+    page.fill("#password", "fel-losenord")
+    page.click("#loginForm button")
+    page.locator("#loginError").wait_for()
+    page.fill("#password", "ett-langt-losenord")
+    page.click("#loginForm button")
+    page.wait_for_url(skyddad_server + "/")
+    _skarmbild(page, f"{enhet}-5-inloggad")
+
+    # Skapa och godkänn en artikel.
+    sokord = f"golvvärme {enhet}"
+    page.fill("#qHuvud", sokord)
+    page.click("#addForm button[type=submit]")
+    rad = page.locator(".q-item").filter(has=page.locator(".q-kw", has_text=sokord))
+    rad.locator("[data-act=generate]").click()
+    rad.locator("[data-act=open]").click()
+    page.locator("#statusBadge.s-granskas").wait_for()
+    page.click("#approveBtn")
+    page.locator("#approveConfirm").check()
+    page.locator("#approveOk").click()
+    page.locator("#statusBadge.s-godkand").wait_for()
+
+    # Schemalägg i publiceringsvyn.
+    page.click('.view-btn[data-view="pub"]') if page.locator("#backBtn").is_hidden() else page.click("#backBtn")
+    page.click('.view-btn[data-view="pub"]')
+    page.locator("#modeBanner.simulering").wait_for()
+    page.click("#scheduleBtn")
+    page.locator(".pub-item .status-badge.s-schemalagd").first.wait_for()
+    assert page.locator(".cal-ev.planerad").count() >= 1 or page.locator(".cal-ev").count() >= 1
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-6-publicering")
+
+    # Pausa och logga ut.
+    page.locator("label.toggle", has=page.locator("#pauseToggle")).click()
+    page.locator("#modeBanner.pausad").wait_for()
+    page.locator("label.toggle", has=page.locator("#pauseToggle")).click()
+    page.locator("#modeBanner.simulering").wait_for()
+    page.click("#logoutBtn")
+    page.wait_for_url("**/login")
     assert fel == []
     ctx.close()

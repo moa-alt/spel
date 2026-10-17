@@ -9,11 +9,12 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 | 1 | Gränssnitt, förhandsgranskning, redigering, SEO-kontroll, export | ✅ |
 | 2 | AI-genererad artikel utifrån sökintention (Claude) | ✅ |
 | 3 | **Artikelkö och granskning:** databas, CSV-import, ordning, generera alla, Godkänn/Begär ändringar/Avvisa, historik, varning för liknande sökord | ✅ |
-| 4 | Bilder: 4 AI-bilder → komprimerad WebP med beskrivande filnamn, generera om text eller bilder separat | Nästa |
-| 5 | WordPress: anslutning, kontroll av SEO-plugin och API-fält, mediauppladdning, utkast med Custom HTML-block, CSS via litet tilläggsplugin, kontroll mot redan publicerade artiklar, internlänkförslag, testläge | Planerat |
+| 4 | Bilder: 4 AI-bilder → komprimerad WebP med beskrivande filnamn, generera om text eller bilder separat | Planerat |
+| 5 | WordPress: anslutning, kontroll av SEO-plugin och API-fält, utkast och publicering i Custom HTML-block, CSS via tilläggsplugin, testlägen (simulering/utkast) | ✅ (mediauppladdning kommer med bilderna) |
 | 6 | Schemaläggning: startdatum, klockslag (Europe/Stockholm), ett godkänt inlägg per dag, `status=future` i WordPress, kalender, ändra datum, pausa, återkalla före publicering, skydd mot dubbelpublicering, kontroll att WordPress verkligen publicerat | Planerat |
 | 3b | **Ny design och mobilanpassning:** skandinaviskt ljust tema, mobile-first, granskningsvy för mobil, godkännande med bekräftelse | ✅ |
-| 7 | Drift: säker inloggning med sessioner, HTTPS, körning på server, säkerhetskopior, driftsättningsguide | Planerat |
+| 6–7 | **Molndrift och publicering:** inloggning med sessioner, HTTPS, schemaläggare på servern (en artikel per dag, svensk tid), kalender, paus, ändra datum, skydd mot dubbelpublicering och ändrat innehåll, WordPress-klient och tilläggsplugin, nattliga säkerhetskopior, publiceringslogg, Docker och Fly.io. Se [DRIFT.md](DRIFT.md). | ✅ Förberett, inte driftsatt |
+| 8 | Internlänkningsmotor | Nästa |
 
 ## Granskningsflödet
 
@@ -23,7 +24,8 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 | Genereras | AI:n skriver på servern (fortsätter även om webbläsaren stängs) | Vänta |
 | Väntar på granskning | Klar för din granskning | **Godkänn artikel**, **Begär ändringar**, **Avvisa**, redigera, generera om |
 | Godkänd | Du har godkänt exakt den här versionen | Återkalla godkännande, begär ändringar, avvisa |
-| Schemalagd / Publicerad | Kommer i etapp 6 | |
+| Schemalagd | Ligger i publiceringskalendern | Ändra datum, ta bort ur kalendern; ändras texten stoppas publiceringen automatiskt |
+| Publicerad | Publicerad på klimathemmet.se | Ändringar görs i WordPress |
 | Fel | Genereringen misslyckades; felet visas | Försök igen |
 | Avvisad | Arkiverad, kan inte godkännas | Återställ |
 

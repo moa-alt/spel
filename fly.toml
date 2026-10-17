@@ -1,0 +1,34 @@
+# Fly.io-konfiguration för Klimathemmet AI Studio.
+# Driftsätts först när du kör `fly deploy` själv – se DRIFT.md.
+app = "klimathemmet-studio"     # byt till ett eget, unikt namn
+primary_region = "arn"          # Stockholm
+
+[env]
+  STUDIO_MILJO = "produktion"
+  STUDIO_DATA = "/data"
+  # simulering = inget skickas till WordPress. Ändras först när du godkänt det (se DRIFT.md).
+  STUDIO_PUBLICERING = "simulering"
+  WP_URL = "https://klimathemmet.se"
+
+[mounts]
+  source = "studio_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Schemaläggaren måste alltid vara igång: maskinen får inte stängas av vid inaktivitet.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -12,7 +12,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(os.getenv("STUDIO_DB", Path(__file__).resolve().parent.parent / "data" / "studio.db"))
+DATA_DIR = Path(os.getenv("STUDIO_DATA", Path(__file__).resolve().parent.parent / "data"))
+DB_PATH = Path(os.getenv("STUDIO_DB", DATA_DIR / "studio.db"))
 
 # Statusar i den ordning en artikel normalt går igenom dem, plus fel och avvisad.
 STATUSAR = ("utkast", "genereras", "granskas", "godkand", "schemalagd", "publicerad", "fel", "avvisad")
@@ -91,6 +92,7 @@ def _rad(r: sqlite3.Row, med_innehall: bool) -> dict:
         "fel": r["fel"],
         "andringar": r["andringar"],
         "godkand_at": r["godkand_at"],
+        "godkand_hash": r["godkand_hash"],
         "wp_post_id": r["wp_post_id"],
         "publiceras_at": r["publiceras_at"],
         "skapad": r["skapad"],
@@ -124,6 +126,25 @@ def historik(artikel_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT handling, kommentar, tid FROM handelser WHERE artikel_id = ? ORDER BY id DESC", (artikel_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+PUBLICERINGSHANDELSER = (
+    "schemalagd", "omschemalagd", "avbokad", "publicerad", "publicering_simulerad", "wp_utkast_skapat",
+    "publicering_stoppad", "publicering_misslyckad", "publicering_forsok", "publicering_missad",
+    "publicering_pausad", "publicering_aterupptagen",
+)
+
+
+def publiceringslogg(antal: int = 100) -> list[dict]:
+    platser = ",".join("?" for _ in PUBLICERINGSHANDELSER)
+    with _conn() as c:
+        rows = c.execute(
+            f"""SELECT h.artikel_id, h.handling, h.kommentar, h.tid, a.huvudsokord
+                FROM handelser h LEFT JOIN artiklar a ON a.id = h.artikel_id
+                WHERE h.handling IN ({platser}) ORDER BY h.id DESC LIMIT ?""",
+            (*PUBLICERINGSHANDELSER, antal),
         ).fetchall()
     return [dict(r) for r in rows]
 

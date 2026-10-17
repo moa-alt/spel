@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 
 import anthropic
 
-from .config import settings
+from . import config
 from .demo import slugify
 from .sanitize import rensa_html
 
@@ -176,17 +176,17 @@ def _slutlig_text(message) -> str:
 async def generera_artikel(
     huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None
 ) -> AsyncIterator[dict]:
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
+    client = anthropic.AsyncAnthropic(api_key=config.settings.anthropic_api_key, max_retries=3)
     yield {"typ": "steg", "steg": 0}
     skriver = False
     tecken = 0
     try:
         async with client.messages.stream(
-            model=settings.claude_model,
+            model=config.settings.claude_model,
             max_tokens=64000,
             thinking={"type": "adaptive"},
             output_config={
-                "effort": settings.claude_effort,
+                "effort": config.settings.claude_effort,
                 "format": {"type": "json_schema", "schema": ARTIKEL_SCHEMA},
             },
             system=[{"type": "text", "text": SYSTEMPROMPT, "cache_control": {"type": "ephemeral"}}],

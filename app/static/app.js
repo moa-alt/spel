@@ -19,7 +19,8 @@ const STATUS_NAMN = {
   utkast: "Utkast", genereras: "Genereras", granskas: "Väntar på granskning", godkand: "Godkänd",
   schemalagd: "Schemalagd", publicerad: "Publicerad", fel: "Fel", avvisad: "Avvisad",
 };
-const REDIGERBAR = ["utkast", "granskas", "godkand"];
+// En schemalagd artikel kan redigeras; då tas den ur kalendern och måste godkännas igen.
+const REDIGERBAR = ["utkast", "granskas", "godkand", "schemalagd"];
 
 /* ---------- Hjälpfunktioner ---------- */
 function esc(s) {
@@ -47,15 +48,18 @@ function remember(key, value) {
 function recall(key) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
+function formatDag(iso) {
+  return iso ? new Date(iso).toLocaleString("sv-SE", { timeZone: "Europe/Stockholm", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+}
 function formatTid(iso) {
   return iso ? new Date(iso).toLocaleString("sv-SE", { dateStyle: "medium", timeStyle: "short" }) : "";
 }
 async function api(path, body, method) {
-  const res = await fetch(path, {
-    method: method || (body !== undefined ? "POST" : "GET"),
-    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const m = method || (body !== undefined ? "POST" : "GET");
+  const headers = { "X-Studio": "1" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, { method: m, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  if (res.status === 401) { location.href = "/login"; throw new Error("Du är utloggad"); }
   if (res.status === 204) return {};
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : res.status === 422 ? "Kontrollera fälten" : `Fel ${res.status}`);
@@ -94,8 +98,12 @@ async function loadStatus() {
   });
   const wp = $("#wpBtn");
   wp.disabled = !state.status.wordpress;
-  wp.title = state.status.wordpress ? "Skapar ett utkast i WordPress" : "WordPress kopplas in i ett senare steg";
+  wp.title = state.status.wordpress ? "Skapar eller uppdaterar ett utkast i WordPress. Publicerar aldrig." : "WordPress är inte konfigurerat på servern";
+  $("#logoutBtn").hidden = !state.status.inloggning;
 }
+$("#logoutBtn").addEventListener("click", async () => {
+  try { await api("/api/logout", {}); } finally { location.href = "/login"; }
+});
 
 /* ---------- Sekundära sökord (chips) ---------- */
 function chipInput(box, list, input, key) {
@@ -459,9 +467,12 @@ $("#copyBtn").addEventListener("click", async () => {
   } catch (err) { toast(err.message || "Kunde inte kopiera"); }
 });
 $("#wpBtn").addEventListener("click", async () => {
+  if (!state.current) return;
+  if (!confirm("Skapa eller uppdatera ett utkast i WordPress? Inget publiceras.")) return;
   try {
-    await api("/api/wordpress", state.article);
-    toast("Utkastet är skapat i WordPress");
+    const res = await api(`/api/artiklar/${state.current.id}/wp-utkast`, {});
+    toast(`Utkastet är sparat i WordPress (inlägg ${res.wp_post_id})`);
+    await openArticle(state.current.id, { keepView: true });
   } catch (err) { toast(err.message); }
 });
 
@@ -471,9 +482,11 @@ function showView(view) {
   document.body.dataset.view = view;
   $("#queueView").hidden = view !== "queue";
   $("#editorView").hidden = view !== "editor";
+  $("#pubView").hidden = view !== "pub";
   $$(".view-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   remember(VIEW_KEY, view);
   if (view === "queue") loadQueue();
+  if (view === "pub") loadPub();
 }
 $$(".view-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
 $("#backBtn").addEventListener("click", () => showView("queue"));
@@ -545,6 +558,7 @@ function renderQueue() {
     }
     if (a.fel) notes.push(`<div class="q-note bad">⚠ ${esc(a.fel)}</div>`);
     if (a.andringar) notes.push(`<div class="q-note warn">Begärda ändringar: ${esc(a.andringar)}</div>`);
+    if (a.status === "schemalagd" && a.publiceras_at) notes.push(`<div class="q-note info">Publiceras ${formatDag(a.publiceras_at)}</div>`);
     if (a.liknande.length) {
       notes.push(`<div class="q-note warn">Liknar ${a.liknande.map((l) => `<a href="#" data-act="goto" data-id="${l.id}">”${esc(l.huvudsokord)}”</a>`).join(", ")} – risk att artiklarna konkurrerar om samma sökningar</div>`);
     }
@@ -680,7 +694,7 @@ $("#csvInput").addEventListener("change", async (e) => {
   e.target.value = "";
   if (!file) return;
   try {
-    const res = await fetch("/api/artiklar/import", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.arrayBuffer() });
+    const res = await fetch("/api/artiklar/import", { method: "POST", headers: { "Content-Type": "text/csv", "X-Studio": "1" }, body: await file.arrayBuffer() });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || `Fel ${res.status}`);
     const dubb = data.dubbletter.length ? `, ${data.dubbletter.length} fanns redan och hoppades över` : "";
@@ -736,9 +750,9 @@ function renderReview() {
   const visa = {
     regenBtn: ["utkast", "granskas", "fel"].includes(s),
     toReviewBtn: s === "utkast" && rec.har_innehall,
-    rejectBtn: ["utkast", "granskas", "godkand", "fel"].includes(s),
-    changesBtn: ["granskas", "godkand"].includes(s),
-    revokeBtn: s === "godkand",
+    rejectBtn: ["utkast", "granskas", "godkand", "schemalagd", "fel"].includes(s),
+    changesBtn: ["granskas", "godkand", "schemalagd"].includes(s),
+    revokeBtn: ["godkand", "schemalagd"].includes(s),
     approveBtn: s === "granskas",
   };
   Object.entries(visa).forEach(([id, v]) => { $("#" + id).hidden = !v; });
@@ -749,6 +763,8 @@ function renderReview() {
   if (s === "fel") { text = `Genereringen misslyckades: ${rec.fel}`; cls = "bad"; }
   else if (rec.andringar) text = `Begärda ändringar: ”${rec.andringar}”. Redigera texten och skicka till granskning, eller generera om med ändringarna.`;
   else if (s === "godkand") { text = `Godkänd ${formatTid(rec.godkand_at)}. Om du ändrar något måste artikeln godkännas igen.`; cls = "ok"; }
+  else if (s === "schemalagd") { text = `Schemalagd: publiceras ${formatDag(rec.publiceras_at)}. Om du ändrar något tas den ur kalendern och måste godkännas igen.`; cls = "ok"; }
+  else if (s === "publicerad") { text = "Publicerad på klimathemmet.se. Ändringar görs i WordPress."; cls = "ok"; }
   else if (s === "avvisad") text = "Artikeln är avvisad. Återställ den från artikelkön om du vill använda den.";
   else if (s === "granskas") text = "Granska text, SEO, bilder och metadata. Godkänn artikeln när den är klar för publicering.";
   notice.hidden = !text || !rec.innehall;
@@ -763,6 +779,10 @@ function renderReview() {
 }
 
 const HANDLING_NAMN = {
+  schemalagd: "Schemalagd", omschemalagd: "Nytt datum", avbokad: "Borttagen ur kalendern", publicerad: "Publicerad",
+  publicering_simulerad: "Simulerad publicering", wp_utkast_skapat: "Utkast i WordPress", publicering_stoppad: "Publicering stoppad",
+  publicering_misslyckad: "Publicering misslyckades", publicering_forsok: "Nytt försök planerat", publicering_missad: "Publiceringsdag missad",
+  publicering_pausad: "Publicering pausad", publicering_aterupptagen: "Publicering återupptagen",
   genererad: "Text genererad", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
   andringar_begarda: "Ändringar begärda", avvisad: "Avvisad", aterstalld: "Återställd",
   godkannande_aterkallat: "Godkännande återkallat", godkannande_upphavt: "Godkännande upphävt",
@@ -848,11 +868,156 @@ $("#regenBtn").addEventListener("click", async () => {
   } catch (err) { toast(err.message); }
 });
 
+/* ---------- Publicering ---------- */
+const SLOT_NAMN = {
+  planerad: "Schemalagd", publicerar: "Publiceras nu", publicerad: "Publicerad", utkast: "Utkast i WordPress",
+  simulerad: "Simulerad", missad: "Missad", fel: "Fel",
+};
+const LAGE_TEXT = {
+  simulering: ["Simuleringsläge", "Inget skickas till klimathemmet.se. Schemaläggaren kör alla kontroller och loggar vad som skulle ha hänt."],
+  utkast: ["Utkastläge", "På publiceringsdagen skapas ett utkast i WordPress. Inget publiceras."],
+  skarp: ["Skarp publicering", "Godkända artiklar publiceras automatiskt på klimathemmet.se på sina datum."],
+};
+const pub = { data: null, manad: null };
+
+async function loadPub() {
+  try { pub.data = await api("/api/publicering"); } catch (err) { toast(err.message); return; }
+  const d = pub.data;
+  if (!pub.manad) { const t = new Date(d.idag); pub.manad = new Date(t.getFullYear(), t.getMonth(), 1); }
+  const [rubrik, text] = LAGE_TEXT[d.lage];
+  const banner = $("#modeBanner");
+  banner.className = `mode-banner ${d.pausad ? "pausad" : d.lage}`;
+  banner.innerHTML = d.pausad
+    ? `<strong>Publiceringen är pausad</strong>Inget publiceras förrän du återupptar den. Läge: ${esc(rubrik.toLowerCase())}.`
+    : `<strong>${esc(rubrik)}</strong>${esc(text)}`;
+  $("#pauseToggle").checked = d.pausad;
+  $("#pauseText").textContent = d.pausad ? "Publiceringen är pausad" : "Pausa all publicering";
+  const n = d.godkanda.length;
+  $("#approvedText").textContent = n
+    ? `${n} godkänd${n === 1 ? "" : "a"} artikel${n === 1 ? "" : "ar"} väntar på datum. De läggs på första lediga dag, en per dag, i köns ordning.`
+    : "Inga godkända artiklar väntar på datum. Godkänn artiklar i artikelkön först.";
+  $("#scheduleBtn").disabled = !n;
+  $("#scheduleBtn").textContent = n ? `Schemalägg ${n} godkänd${n === 1 ? "" : "a"}` : "Schemalägg godkända";
+  if (!$("#startDate").value) {
+    const t = new Date(d.idag); t.setDate(t.getDate() + 1);
+    $("#startDate").value = t.toISOString().slice(0, 10);
+  }
+  $("#startDate").min = d.idag;
+  $("#wpText").textContent = d.wordpress
+    ? "Kontrollera inloggning, behörighet, SEO-plugin och tilläggspluginet. Ingenting ändras på sajten."
+    : "WordPress är inte konfigurerat på servern ännu (WP_URL, WP_USER och WP_APP_PASSWORD).";
+  $("#wpCheckBtn").disabled = !d.wordpress;
+  renderCalendar();
+  renderPubList();
+  $("#pubLog").innerHTML = d.logg.length ? d.logg.map((h) => `<li><strong>${esc(HANDLING_NAMN[h.handling] || h.handling)}${h.huvudsokord ? ` · ${esc(h.huvudsokord)}` : ""}</strong>
+    ${h.kommentar ? `<q>${esc(h.kommentar)}</q>` : ""}<time>${formatTid(h.tid)}</time></li>`).join("") : `<li class="pub-empty">Inga händelser ännu.</li>`;
+}
+
+function renderCalendar() {
+  const m = pub.manad;
+  $("#calTitle").textContent = m.toLocaleDateString("sv-SE", { month: "long", year: "numeric" });
+  const perDag = {};
+  pub.data.kalender.forEach((p) => { (perDag[p.datum] ||= []).push(p); });
+  const forsta = new Date(m);
+  forsta.setDate(1 - ((m.getDay() + 6) % 7)); // måndag före eller på den första
+  const celler = ["mån", "tis", "ons", "tor", "fre", "lör", "sön"].map((d) => `<div class="cal-dow">${d}</div>`);
+  for (let i = 0; i < 42; i++) {
+    const dag = new Date(forsta); dag.setDate(forsta.getDate() + i);
+    const iso = `${dag.getFullYear()}-${String(dag.getMonth() + 1).padStart(2, "0")}-${String(dag.getDate()).padStart(2, "0")}`;
+    const ev = (perDag[iso] || []).map((p) => `<span class="cal-ev ${p.status}" title="${esc(p.huvudsokord)} – ${SLOT_NAMN[p.status]}">${p.lokal_tid.slice(11, 16)} <span class="t">${esc(p.huvudsokord)}</span></span>`).join("");
+    celler.push(`<div class="cal-day${dag.getMonth() !== m.getMonth() ? " other" : ""}${iso === pub.data.idag ? " today" : ""}"><span class="n">${dag.getDate()}</span>${ev}</div>`);
+  }
+  $("#calendar").innerHTML = celler.join("");
+}
+
+function renderPubList() {
+  const lista = [...pub.data.kalender].sort((a, b) => a.datum.localeCompare(b.datum));
+  const kommande = lista.filter((p) => p.datum >= pub.data.idag || ["planerad", "fel", "missad"].includes(p.status));
+  $("#pubList").innerHTML = kommande.length ? kommande.map((p) => `
+    <li class="pub-item">
+      <div>
+        <div class="kw">${esc(p.titel || p.huvudsokord)}</div>
+        <div class="when">${formatDag(p.tid_utc)} · ${statusBadgeSlot(p.status)}</div>
+        ${p.fel && p.status !== "planerad" ? `<div class="err">${esc(p.fel)}</div>` : ""}
+        ${p.fel && p.status === "planerad" ? `<div class="err">Senaste försöket misslyckades: ${esc(p.fel)}</div>` : ""}
+        ${p.wp_lank ? `<a href="${esc(p.wp_lank)}" target="_blank" rel="noopener">Visa på sajten</a>` : ""}
+      </div>
+      ${p.status === "planerad" ? `<div class="pub-item-actions">
+        <input type="date" value="${p.datum}" min="${pub.data.idag}" data-flytta="${p.id}" aria-label="Nytt datum för ${esc(p.huvudsokord)}">
+        <button class="btn btn-ghost btn-sm btn-danger" type="button" data-avboka="${p.artikel_id}">Ta bort</button>
+      </div>` : ""}
+    </li>`).join("") : `<li class="pub-empty">Inget är schemalagt.</li>`;
+}
+function statusBadgeSlot(s) {
+  const klass = { planerad: "schemalagd", publicerar: "genereras", publicerad: "publicerad", utkast: "godkand", simulerad: "godkand", missad: "fel", fel: "fel" }[s];
+  return `<span class="status-badge s-${klass}">${SLOT_NAMN[s] || s}</span>`;
+}
+
+$("#calPrev").addEventListener("click", () => { pub.manad.setMonth(pub.manad.getMonth() - 1); renderCalendar(); });
+$("#calNext").addEventListener("click", () => { pub.manad.setMonth(pub.manad.getMonth() + 1); renderCalendar(); });
+
+$("#scheduleForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const n = pub.data.godkanda.length;
+  if (!confirm(`Schemalägg ${n} godkänd${n === 1 ? "" : "a"} artikel${n === 1 ? "" : "ar"} från ${$("#startDate").value} kl. ${$("#startTime").value}?`)) return;
+  try {
+    const res = await api("/api/publicering/schemalagg", { startdatum: $("#startDate").value, klockslag: $("#startTime").value });
+    const k = res.schemalagda.length;
+    toast(`${k} ${k === 1 ? "artikel schemalagd" : "artiklar schemalagda"}`);
+    await loadPub();
+  } catch (err) { toast(err.message); }
+});
+
+$("#pauseToggle").addEventListener("change", async (e) => {
+  try {
+    await api("/api/publicering/paus", { pausad: e.target.checked });
+    toast(e.target.checked ? "Publiceringen är pausad" : "Publiceringen är återupptagen");
+  } catch (err) { toast(err.message); }
+  loadPub();
+});
+
+$("#pubList").addEventListener("change", async (e) => {
+  const id = e.target.dataset.flytta;
+  if (!id) return;
+  try {
+    const res = await api(`/api/publicering/${id}/flytta`, { datum: e.target.value });
+    toast(`Flyttad till ${formatDag(res.lokal_tid)}`);
+  } catch (err) { toast(err.message); }
+  loadPub();
+});
+$("#pubList").addEventListener("click", async (e) => {
+  const id = e.target.dataset.avboka;
+  if (!id || !confirm("Ta bort artikeln ur kalendern? Den förblir godkänd och kan schemaläggas igen.")) return;
+  try { await api(`/api/artiklar/${id}/avboka`, {}); toast("Borttagen ur kalendern"); } catch (err) { toast(err.message); }
+  loadPub();
+});
+
+$("#wpCheckBtn").addEventListener("click", async () => {
+  const btn = $("#wpCheckBtn"), ut = $("#wpResult");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/wordpress/kontrollera", {});
+    const rader = [
+      ["", `Inloggad som ${r.anvandare}`],
+      [r.kan_publicera ? "" : "bad", r.kan_publicera ? "Har behörighet att publicera" : "Saknar behörighet att publicera"],
+      [r.seo_plugin.length ? "" : "warn", r.seo_plugin.length ? `SEO-plugin: ${r.seo_plugin.join(", ")}` : "Inget SEO-plugin hittades"],
+      [r.studio_plugin ? "" : "bad", r.studio_plugin ? "Tilläggspluginet är installerat" : "Tilläggspluginet saknas"],
+      ...r.problem.map((p) => ["warn", p]),
+    ];
+    ut.innerHTML = rader.map(([k, t]) => `<li class="${k}">${esc(t)}</li>`).join("");
+  } catch (err) {
+    ut.innerHTML = `<li class="bad">${esc(err.message)}</li>`;
+  } finally {
+    ut.hidden = false;
+    btn.disabled = false;
+  }
+});
+
 /* ---------- Start ---------- */
 loadStatus();
 (async () => {
   await loadQueue();
   const senaste = Number(recall("kh-studio-artikel"));
   if (senaste && state.queue.some((a) => a.id === senaste)) await openArticle(senaste, { keepView: true });
-  showView(recall(VIEW_KEY) === "editor" ? "editor" : "queue");
+  showView(["editor", "pub"].includes(recall(VIEW_KEY)) ? recall(VIEW_KEY) : "queue");
 })();

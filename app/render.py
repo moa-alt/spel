@@ -25,11 +25,12 @@ def article_inner_html(article: dict) -> str:
     return BILD_MARKOR.sub(lambda m: figure_html(bilder.get(int(m.group(1)), {})), article["html"])
 
 
-def wordpress_block(article: dict) -> str:
-    css = ARTIKEL_CSS.read_text(encoding="utf-8").strip()
+def wordpress_block(article: dict, inline_css: bool = True) -> str:
+    """Artikeln som ett Anpassad HTML-block. Utan inline_css förutsätts tilläggspluginet ladda CSS:en."""
+    stil = f"<style>\n{ARTIKEL_CSS.read_text(encoding='utf-8').strip()}\n</style>\n" if inline_css else ""
     return (
         "<!-- wp:html -->\n"
-        f"<style>\n{css}\n</style>\n"
+        f"{stil}"
         f'<div class="kh-artikel">\n{article_inner_html(article)}\n</div>\n'
         "<!-- /wp:html -->"
     )

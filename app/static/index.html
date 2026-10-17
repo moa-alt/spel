@@ -28,12 +28,14 @@
     <nav class="views" aria-label="Vyer">
       <button class="view-btn active" data-view="queue" type="button">Artikelkö <span class="view-count" id="queueCount"></span></button>
       <button class="view-btn" data-view="editor" type="button">Editor</button>
+      <button class="view-btn" data-view="pub" type="button">Publicering</button>
     </nav>
     <div class="status" id="status" aria-label="Integrationer">
       <span class="pill" data-key="ai_text"><i></i>AI-text</span>
       <span class="pill" data-key="bilder"><i></i>Bilder</span>
       <span class="pill" data-key="wordpress"><i></i>WordPress</span>
     </div>
+    <button class="btn btn-ghost btn-sm logout" id="logoutBtn" type="button" hidden>Logga ut</button>
   </header>
 
   <!-- Artikelkö -->
@@ -74,6 +76,72 @@
       <h1>Kön är tom</h1>
       <p>Lägg till ett huvudsökord ovan eller importera en CSV-fil med en artikel per rad. Format: <code>huvudsökord;sekundärt 1, sekundärt 2</code></p>
     </div>
+  </div>
+
+  <!-- Publicering -->
+  <div class="queue-view pub-view" id="pubView" hidden>
+    <div class="queue-head">
+      <div>
+        <h1>Publicering</h1>
+        <p class="muted">Godkända artiklar publiceras en per dag i köns ordning, svensk tid. Servern sköter publiceringen även när din dator är avstängd.</p>
+      </div>
+    </div>
+
+    <div class="mode-banner" id="modeBanner"></div>
+
+    <div class="pub-grid">
+      <form class="card" id="scheduleForm">
+        <h2 class="card-title">Schemalägg</h2>
+        <p class="muted pub-text" id="approvedText"></p>
+        <div class="pub-fields">
+          <label class="field"><span class="label">Startdatum</span><input id="startDate" type="date" required></label>
+          <label class="field"><span class="label">Klockslag <small>Europe/Stockholm</small></span><input id="startTime" type="time" value="07:00" required></label>
+        </div>
+        <button class="btn btn-primary btn-block" id="scheduleBtn" type="submit">Schemalägg godkända</button>
+      </form>
+
+      <section class="card">
+        <h2 class="card-title">Paus</h2>
+        <label class="toggle">
+          <input type="checkbox" id="pauseToggle">
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          <span id="pauseText">Pausa all publicering</span>
+        </label>
+        <p class="muted pub-text">Under pausen publiceras ingenting. Dagar som passerar under pausen publiceras inte i efterhand; schemalägg de artiklarna på nytt.</p>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">WordPress</h2>
+        <p class="muted pub-text" id="wpText"></p>
+        <button class="btn btn-ghost btn-block" id="wpCheckBtn" type="button">Kontrollera anslutning</button>
+        <ul class="checks wp-checks" id="wpResult" hidden></ul>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Säkerhetskopia</h2>
+        <p class="muted pub-text">Servern sparar en kopia av databasen varje natt och behåller de senaste 14. Du kan också ladda ner en kopia nu.</p>
+        <a class="btn btn-ghost btn-block" href="/api/sakerhetskopia" download>Ladda ner säkerhetskopia</a>
+      </section>
+    </div>
+
+    <section class="card cal-card">
+      <div class="cal-head">
+        <button class="btn btn-ghost btn-icon" id="calPrev" type="button" aria-label="Föregående månad">‹</button>
+        <h2 class="card-title" id="calTitle"></h2>
+        <button class="btn btn-ghost btn-icon" id="calNext" type="button" aria-label="Nästa månad">›</button>
+      </div>
+      <div class="cal" id="calendar"></div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Kommande och senaste</h2>
+      <ul class="pub-list" id="pubList"></ul>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Publiceringslogg</h2>
+      <ul class="history" id="pubLog"></ul>
+    </section>
   </div>
 
   <div class="layout" id="editorView" hidden>

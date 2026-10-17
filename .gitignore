@@ -7,3 +7,4 @@ cache/
 *.key
 secrets/
 data/
+dist/

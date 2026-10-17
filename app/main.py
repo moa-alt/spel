@@ -3,51 +3,87 @@
 Starta: uvicorn app.main:app --reload
 """
 
-import base64
-import secrets
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+import tempfile
+from contextlib import asynccontextmanager, suppress
+from datetime import date, time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
+from starlette.background import BackgroundTask
 
-from . import db, jobb
-from .config import settings
+from . import auth, config, db, jobb, publicering
 from .planering import MAX_SEKUNDARA, CsvFel, liknande, normalisera_sokord, tolka_csv
+from .publicering import PubliceringsFel
 from .render import wordpress_block
+from .wordpress import WordPress, WordPressFel
 
 STATIC = Path(__file__).resolve().parent / "static"
 MAX_CSV_BYTES = 2 * 1024 * 1024
 
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# httpx loggar varje anrop; adresserna innehåller inga hemligheter men blir brus.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    config.settings.kontrollera_produktion()
     db.init()
+    publicering.init()
+    uppgift = asyncio.create_task(publicering.schemalaggare()) if config.settings.schemalaggare else None
     yield
+    if uppgift:
+        uppgift.cancel()
+        with suppress(asyncio.CancelledError):
+            await uppgift
 
 
-app = FastAPI(title="Klimathemmet AI Studio", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="Klimathemmet AI Studio", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app.middleware("http")(auth.middleware)
 
 
-@app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    """Skyddar hela studion med lösenord när STUDIO_USER/STUDIO_PASSWORD är satta."""
-    if settings.studio_user and settings.studio_password:
-        ok = False
-        header = request.headers.get("authorization", "")
-        if header.startswith("Basic "):
-            try:
-                user, _, pwd = base64.b64decode(header[6:]).decode().partition(":")
-                ok = secrets.compare_digest(user, settings.studio_user) and secrets.compare_digest(
-                    pwd, settings.studio_password
-                )
-            except Exception:
-                ok = False
-        if not ok:
-            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="AI Studio"'})
-    return await call_next(request)
+# ---------- Inloggning ----------
+
+class Inloggning(BaseModel):
+    anvandare: str = Field(max_length=200)
+    losenord: str = Field(max_length=500)
+
+
+@app.get("/login")
+def login_sida():
+    return FileResponse(STATIC / "login.html")
+
+
+@app.post("/api/login")
+def logga_in(body: Inloggning, request: Request):
+    if not config.settings.inloggning_aktiv:
+        return {"ok": True}
+    ip = auth.klient_ip(request)
+    if auth.for_manga_forsok(ip):
+        raise HTTPException(429, "För många misslyckade försök. Vänta en kvart och försök igen.")
+    if not auth.kontrollera_losenord(ip, body.anvandare, body.losenord):
+        raise HTTPException(401, "Fel användarnamn eller lösenord.")
+    resp = JSONResponse({"ok": True})
+    auth.satt_kaka(resp, config.settings.studio_user)
+    return resp
+
+
+@app.post("/api/logout")
+def logga_ut():
+    resp = JSONResponse({"ok": True})
+    auth.rensa_kaka(resp)
+    return resp
+
+
+@app.get("/healthz")
+def halsa():
+    return {"ok": True}
 
 
 class Sokord(BaseModel):
@@ -114,7 +150,7 @@ def _med_extra(artikel: dict, lika: dict[int, list[dict]]) -> dict:
 
 @app.get("/api/status")
 def status():
-    return settings.status()
+    return config.settings.status()
 
 
 @app.post("/api/exportera")
@@ -122,9 +158,32 @@ def exportera(article: Article):
     return {"kod": wordpress_block(article.model_dump())}
 
 
-@app.post("/api/wordpress")
-def skicka_till_wordpress(article: Article):
-    raise HTTPException(status_code=501, detail="WordPress-integrationen byggs i ett senare steg.")
+@app.post("/api/wordpress/kontrollera")
+async def kontrollera_wordpress():
+    """Undersöker anslutningen, behörigheter, SEO-plugin och tillgängliga fält. Ändrar ingenting."""
+    try:
+        async with WordPress() as wp:
+            return await wp.kontrollera()
+    except WordPressFel as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/api/artiklar/{artikel_id}/wp-utkast")
+async def skicka_som_utkast(artikel_id: int):
+    """Skapar eller uppdaterar artikeln som utkast i WordPress, på din begäran. Publicerar aldrig."""
+    artikel = _hamta_eller_404(artikel_id)
+    if not artikel["har_innehall"] or artikel["status"] in ("genereras", "publicerad"):
+        raise HTTPException(409, "Artikeln kan inte skickas som utkast i sin nuvarande status.")
+    try:
+        async with WordPress() as wp:
+            post = await wp.spara_inlagg(artikel, "draft")
+    except WordPressFel as e:
+        raise HTTPException(502, str(e))
+    if post.get("status") == "publish":
+        raise HTTPException(409, "Artikeln är redan publicerad i WordPress.")
+    db.uppdatera(artikel_id, wp_post_id=post["id"])
+    db.logga(artikel_id, "wp_utkast_skapat", f"Utkast i WordPress (inlägg {post['id']})")
+    return {"wp_post_id": post["id"]}
 
 
 # ---------- Artikelkö ----------
@@ -200,10 +259,26 @@ def andra_sokord(artikel_id: int, sokord: Sokord):
     return db.hamta(artikel_id)
 
 
+def _avboka_om_schemalagd(artikel: dict, orsak: str) -> dict:
+    """En schemalagd artikel som ska ändras tas först bort ur kalendern."""
+    if artikel["status"] != "schemalagd":
+        return artikel
+    try:
+        publicering.avboka(artikel["id"], orsak)
+    except PubliceringsFel as e:
+        raise HTTPException(409, str(e))
+    return db.hamta(artikel["id"])
+
+
 @app.put("/api/artiklar/{artikel_id}/innehall")
 def spara_innehall(artikel_id: int, article: Article):
     artikel = _hamta_eller_404(artikel_id)
-    if artikel["status"] not in ("utkast", "granskas", "godkand") or not artikel["har_innehall"]:
+    if artikel["status"] == "schemalagd":
+        jamfor = Article(**artikel["innehall"]).model_dump() | {
+            "huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]}
+        if article.model_dump() | {"huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]} != jamfor:
+            artikel = _avboka_om_schemalagd(artikel, "Artikeln redigerades efter godkännandet; publiceringen stoppades.")
+    if artikel["status"] not in ("utkast", "granskas", "godkand", "schemalagd") or not artikel["har_innehall"]:
         raise HTTPException(409, "Artikeln kan inte redigeras i sin nuvarande status.")
     innehall = article.model_dump()
     innehall["huvudsokord"] = artikel["huvudsokord"]
@@ -271,6 +346,7 @@ def begar_andringar(artikel_id: int, body: Kommentar):
     kommentar = body.kommentar.strip()
     if not kommentar:
         raise HTTPException(400, "Beskriv vilka ändringar du vill ha.")
+    _avboka_om_schemalagd(_hamta_eller_404(artikel_id), "Ändringar begärdes; publiceringen stoppades.")
     return _byt(artikel_id, ("granskas", "godkand"), "utkast", "andringar_begarda", kommentar,
                 "Ändringar kan bara begäras för artiklar som väntar på granskning eller är godkända.",
                 andringar=kommentar, godkand_at=None, godkand_hash=None)
@@ -278,6 +354,7 @@ def begar_andringar(artikel_id: int, body: Kommentar):
 
 @app.post("/api/artiklar/{artikel_id}/avvisa")
 def avvisa(artikel_id: int, body: Kommentar):
+    _avboka_om_schemalagd(_hamta_eller_404(artikel_id), "Artikeln avvisades; publiceringen stoppades.")
     return _byt(artikel_id, ("utkast", "granskas", "godkand", "fel"), "avvisad", "avvisad", body.kommentar.strip(),
                 "Artikeln kan inte avvisas i sin nuvarande status.", godkand_at=None, godkand_hash=None)
 
@@ -289,6 +366,7 @@ def aterstall(artikel_id: int):
 
 @app.post("/api/artiklar/{artikel_id}/aterkalla")
 def aterkalla(artikel_id: int):
+    _avboka_om_schemalagd(_hamta_eller_404(artikel_id), "Godkännandet återkallades; publiceringen stoppades.")
     return _byt(artikel_id, ("godkand",), "granskas", "godkannande_aterkallat", None,
                 "Bara godkända artiklar kan återkallas.", godkand_at=None, godkand_hash=None)
 
@@ -301,6 +379,85 @@ def ta_bort(artikel_id: int):
     db.ta_bort(artikel_id)
     db.logga(artikel_id, "borttagen", artikel["huvudsokord"])
     return Response(status_code=204)
+
+
+# ---------- Publicering ----------
+
+class Schemalaggning(BaseModel):
+    startdatum: date
+    klockslag: time = publicering.STANDARD_KLOCKSLAG
+    artikel_ids: list[int] | None = None
+
+
+class Flytt(BaseModel):
+    datum: date
+    klockslag: time | None = None
+
+
+class Paus(BaseModel):
+    pausad: bool
+
+
+@app.get("/api/publicering")
+def publiceringsoversikt():
+    artiklar = db.lista()
+    return {
+        "lage": config.settings.publicering,
+        "pausad": publicering.pausad(),
+        "wordpress": config.settings.status()["wordpress"],
+        "idag": publicering.idag_lokalt().isoformat(),
+        "kalender": publicering.kalender(),
+        "godkanda": [{"id": a["id"], "huvudsokord": a["huvudsokord"], "titel": a["titel"]}
+                     for a in artiklar if a["status"] == "godkand"],
+        "logg": db.publiceringslogg(),
+    }
+
+
+@app.post("/api/publicering/schemalagg")
+def schemalagg(body: Schemalaggning):
+    ids = body.artikel_ids
+    if ids is None:
+        ids = [a["id"] for a in db.lista() if a["status"] == "godkand"]
+    if not ids:
+        raise HTTPException(409, "Det finns inga godkända artiklar att schemalägga.")
+    try:
+        return {"schemalagda": publicering.schemalagg(ids, body.startdatum, body.klockslag)}
+    except PubliceringsFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/publicering/{publicering_id}/flytta")
+def flytta(publicering_id: int, body: Flytt):
+    try:
+        return publicering.flytta(publicering_id, body.datum, body.klockslag)
+    except PubliceringsFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/artiklar/{artikel_id}/avboka")
+def avboka(artikel_id: int):
+    _hamta_eller_404(artikel_id)
+    try:
+        if not publicering.avboka(artikel_id, "Borttagen ur kalendern"):
+            raise HTTPException(409, "Artikeln är inte schemalagd.")
+    except PubliceringsFel as e:
+        raise HTTPException(409, str(e))
+    return {"status": "godkand"}
+
+
+@app.post("/api/publicering/paus")
+def pausa(body: Paus):
+    publicering.satt_paus(body.pausad)
+    return {"pausad": body.pausad}
+
+
+@app.get("/api/sakerhetskopia")
+def ladda_ner_sakerhetskopia():
+    fil = Path(tempfile.mkstemp(suffix=".db")[1])
+    publicering.sakerhetskopiera(fil)
+    namn = f"klimathemmet-studio-{publicering.idag_lokalt().isoformat()}.db"
+    return FileResponse(fil, filename=namn, media_type="application/octet-stream",
+                        background=BackgroundTask(fil.unlink, missing_ok=True))
 
 
 # ---------- Gränssnitt ----------
