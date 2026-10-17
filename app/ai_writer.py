@@ -26,7 +26,7 @@ Du skriver kompletta, sökordsoptimerade guideartiklar på svenska som besvarar 
 # Språk och ton
 - Klar, saklig och hjälpsam svenska. Tilltala läsaren med "du". Korta stycken, 2–4 meningar.
 - Konkreta råd, exempel och siffror där det hjälper läsaren. Inget fluff, inga utfyllnadsfraser och inga klyschor som "i dagens samhälle".
-- Hitta inte på statistik, studier, citat, produktnamn eller exakta regler. Ange kostnader som ungefärliga spann ("ungefär", "ofta") och skriv aldrig att en siffra gäller ett visst år. Nämn ROT-avdrag, bygglov eller regler allmänt och hänvisa till Skatteverket, Boverket eller kommunen för aktuella villkor.
+- Hitta aldrig på fakta, statistik, studier, tester, produktrecensioner, citat, källor, källhänvisningar, produktnamn eller exakta regler. Skriv inte att något är testat eller att du har provat något. Är du osäker på en uppgift, utelämna den eller formulera dig allmänt. Ange kostnader som ungefärliga spann ("ungefär", "ofta") och skriv aldrig att en siffra gäller ett visst år. Nämn ROT-avdrag, bygglov eller regler allmänt och hänvisa till Skatteverket, Boverket eller kommunen för aktuella villkor.
 - Rekommendera fackman när något rör el, fukt i konstruktion, eldstäder eller bärande delar.
 
 # SEO
@@ -114,9 +114,17 @@ class GenereringsFel(Exception):
     """Fel med ett meddelande som kan visas för användaren."""
 
 
-def _anvandarprompt(huvudsokord: str, sekundara: list[str]) -> str:
+def _anvandarprompt(huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None) -> str:
     sek = "\n".join(f"- {s}" for s in sekundara) or "- (inga angivna, välj själv relevanta närliggande termer)"
-    return f"Skriv en komplett artikel.\n\nHuvudsökord: {huvudsokord}\n\nSekundära sökord:\n{sek}"
+    prompt = f"Skriv en komplett artikel.\n\nHuvudsökord: {huvudsokord}\n\nSekundära sökord:\n{sek}"
+    if andringar:
+        prompt += f"\n\nRedaktören har granskat en tidigare version och begärt ändringar:\n<andringar>\n{andringar}\n</andringar>"
+        if tidigare:
+            prompt += (
+                "\n\nTidigare version (behåll det som fungerar och åtgärda ändringarna):\n<tidigare_version>\n"
+                f"Titel: {tidigare.get('titel', '')}\n\n{tidigare.get('html', '')}\n</tidigare_version>"
+            )
+    return prompt
 
 
 def _placera_bildmarkorer(body: str) -> str:
@@ -165,7 +173,9 @@ def _slutlig_text(message) -> str:
     return "".join(b.text for b in block[sista_reserv + 1:] if b.type == "text")
 
 
-async def generera_artikel(huvudsokord: str, sekundara: list[str]) -> AsyncIterator[dict]:
+async def generera_artikel(
+    huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None
+) -> AsyncIterator[dict]:
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=3)
     yield {"typ": "steg", "steg": 0}
     skriver = False
@@ -180,7 +190,7 @@ async def generera_artikel(huvudsokord: str, sekundara: list[str]) -> AsyncItera
                 "format": {"type": "json_schema", "schema": ARTIKEL_SCHEMA},
             },
             system=[{"type": "text", "text": SYSTEMPROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": _anvandarprompt(huvudsokord, sekundara)}],
+            messages=[{"role": "user", "content": _anvandarprompt(huvudsokord, sekundara, andringar, tidigare)}],
             # Om modellen avböjer tar en reservmodell över automatiskt.
             extra_headers={"anthropic-beta": "server-side-fallback-2026-07-01"},
             extra_body={"fallbacks": "default"},

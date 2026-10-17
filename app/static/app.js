@@ -3,8 +3,23 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-const STORAGE_KEY = "kh-studio-utkast";
-const state = { article: null, status: {}, sekundara: [], editing: false };
+const VIEW_KEY = "kh-studio-vy";
+const state = {
+  article: null,      // innehållet som visas i editorn
+  current: null,      // artikelns post i kön (status, historik m.m.)
+  queue: [],
+  filter: "alla",
+  status: {},
+  sekundara: [],      // sekundära sökord i formuläret "Ny artikel"
+  qSekundara: [],     // sekundära sökord i köns formulär
+  editing: false,
+};
+
+const STATUS_NAMN = {
+  utkast: "Utkast", genereras: "Genereras", granskas: "Väntar på granskning", godkand: "Godkänd",
+  schemalagd: "Schemalagd", publicerad: "Publicerad", fel: "Fel", avvisad: "Avvisad",
+};
+const REDIGERBAR = ["utkast", "granskas", "godkand"];
 
 /* ---------- Hjälpfunktioner ---------- */
 function esc(s) {
@@ -26,19 +41,46 @@ function toast(msg) {
   clearTimeout(toast.t);
   toast.t = setTimeout(() => el.classList.remove("show"), 2600);
 }
-function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.article)); } catch { /* privat läge */ }
+function remember(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* privat läge */ }
 }
-async function api(path, body) {
+function recall(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function formatTid(iso) {
+  return iso ? new Date(iso).toLocaleString("sv-SE", { dateStyle: "medium", timeStyle: "short" }) : "";
+}
+async function api(path, body, method) {
   const res = await fetch(path, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : {},
-    body: body ? JSON.stringify(body) : undefined,
+    method: method || (body !== undefined ? "POST" : "GET"),
+    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  if (res.status === 204) return {};
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Fel ${res.status}`);
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : res.status === 422 ? "Kontrollera fälten" : `Fel ${res.status}`);
   return data;
 }
+
+// Sparar redigeringar i databasen kort efter att du slutat skriva.
+const save = debounce(async () => {
+  if (!state.current || !state.article) return;
+  const id = state.current.id;
+  $("#saveState").textContent = "Sparar…";
+  try {
+    const res = await api(`/api/artiklar/${id}/innehall`, state.article, "PUT");
+    if (state.current?.id !== id) return;
+    $("#saveState").textContent = "Sparat";
+    if (res.status !== state.current.status) {
+      if (state.current.status === "godkand") toast("Godkännandet upphävdes eftersom artikeln ändrades");
+      await openArticle(id, { keepView: true });
+      loadQueue();
+    }
+  } catch (err) {
+    $("#saveState").textContent = "Kunde inte spara";
+    toast(err.message);
+  }
+}, 700);
 
 /* ---------- Status ---------- */
 async function loadStatus() {
@@ -56,122 +98,95 @@ async function loadStatus() {
 }
 
 /* ---------- Sekundära sökord (chips) ---------- */
-function renderChips() {
-  $("#chips").innerHTML = state.sekundara
-    .map((s, i) => `<span class="chip">${esc(s)}<button type="button" data-i="${i}" aria-label="Ta bort ${esc(s)}">×</button></span>`)
-    .join("");
-}
-function addChip(value) {
-  value.split(",").map((v) => v.trim()).filter(Boolean).forEach((v) => {
-    if (!state.sekundara.some((s) => s.toLowerCase() === v.toLowerCase())) state.sekundara.push(v);
+function chipInput(box, list, input, key) {
+  const render = () => {
+    list.innerHTML = state[key]
+      .map((v, i) => `<span class="chip">${esc(v)}<button type="button" data-i="${i}" aria-label="Ta bort ${esc(v)}">×</button></span>`)
+      .join("");
+  };
+  const add = (value) => {
+    value.split(",").map((v) => v.trim()).filter(Boolean).forEach((v) => {
+      if (!state[key].some((x) => x.toLowerCase() === v.toLowerCase())) state[key].push(v);
+    });
+    render();
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      add(input.value);
+      input.value = "";
+    } else if (e.key === "Backspace" && !input.value && state[key].length) {
+      state[key].pop();
+      render();
+    }
   });
-  renderChips();
+  input.addEventListener("blur", () => { if (input.value.trim()) { add(input.value); input.value = ""; } });
+  list.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-i]");
+    if (!b) return;
+    state[key].splice(Number(b.dataset.i), 1);
+    render();
+  });
+  box.addEventListener("click", (e) => { if (e.target === box || e.target === list) input.focus(); });
+  // Tar med text som skrivits men inte bekräftats med Enter.
+  return { render, flush: () => { if (input.value.trim()) { add(input.value); input.value = ""; } } };
 }
-$("#chipInput").addEventListener("keydown", (e) => {
-  const input = e.target;
-  if (e.key === "Enter" || e.key === ",") {
-    e.preventDefault();
-    addChip(input.value);
-    input.value = "";
-  } else if (e.key === "Backspace" && !input.value && state.sekundara.length) {
-    state.sekundara.pop();
-    renderChips();
-  }
-});
-$("#chipInput").addEventListener("blur", (e) => { if (e.target.value.trim()) { addChip(e.target.value); e.target.value = ""; } });
-$("#chips").addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-i]");
-  if (!b) return;
-  state.sekundara.splice(Number(b.dataset.i), 1);
-  renderChips();
-});
-$("#chipsBox").addEventListener("click", (e) => { if (e.target.id === "chipsBox" || e.target.id === "chips") $("#chipInput").focus(); });
+const briefChips = chipInput($("#chipsBox"), $("#chips"), $("#chipInput"), "sekundara");
+const queueChips = chipInput($("#qChipsBox"), $("#qChips"), $("#qChipInput"), "qSekundara");
 
 /* ---------- Generering ---------- */
 const STEG_TEXT = ["Analyserar sökintention", "Skriver artikeln", "Skapar 4 bilder (WebP)", "Optimerar metadata"];
 
-function setStep(index) {
-  $$("#progress li").forEach((li, i) => {
-    if (li.classList.contains("skipped")) return;
-    li.classList.toggle("done", i < index);
-    li.classList.toggle("active", i === index);
-  });
+function resetProgress() {
+  $$("#progress li").forEach((li, i) => { li.className = ""; li.textContent = STEG_TEXT[i]; });
+  if (!state.status.bilder) {
+    const bild = $('#progress li[data-step="2"]');
+    bild.classList.add("skipped");
+    bild.textContent = "Bilder – kopplas in senare";
+  }
 }
 
-// Läser NDJSON-strömmen från servern: en händelse per rad.
-async function* readEvents(res) {
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (line) yield JSON.parse(line);
+// Visar förloppet för artikeln som är öppen i editorn.
+function renderProgress(rec) {
+  const box = $("#progress");
+  if (!rec || rec.status !== "genereras") {
+    if (!box.hidden && rec) {
+      $$("#progress li:not(.skipped)").forEach((li) => { li.classList.remove("active"); li.classList.add(rec.status === "fel" ? "failed" : "done"); });
+      $('#progress li[data-step="1"]').textContent = STEG_TEXT[1];
     }
+    return;
   }
-  if (buf.trim()) yield JSON.parse(buf);
+  if (box.hidden) { box.hidden = false; resetProgress(); }
+  const steg = rec.forlopp ? Math.max(0, rec.forlopp.steg) : 0;
+  $$("#progress li").forEach((li, i) => {
+    if (li.classList.contains("skipped")) return;
+    li.classList.toggle("done", i < steg);
+    li.classList.toggle("active", i === steg);
+  });
+  if (rec.forlopp?.tecken) $('#progress li[data-step="1"]').textContent = `Skriver artikeln… ${rec.forlopp.tecken.toLocaleString("sv-SE")} tecken`;
 }
 
 $("#brief").addEventListener("submit", async (e) => {
   e.preventDefault();
+  briefChips.flush();
   const huvudsokord = $("#huvudsokord").value.trim();
-  if ($("#chipInput").value.trim()) { addChip($("#chipInput").value); $("#chipInput").value = ""; }
   if (huvudsokord.length < 2) return;
-
-  if (state.article && !confirm("Den nuvarande artikeln ersätts. Fortsätta?")) return;
-
   const btn = $("#genBtn");
   btn.disabled = true;
-  btn.classList.add("loading");
-  $("#progress").hidden = false;
-  $$("#progress li").forEach((li, i) => {
-    li.className = "";
-    li.textContent = STEG_TEXT[i];
-  });
-  // Bilderna kopplas in i steg 3 av utvecklingen.
-  const bildSteg = $('#progress li[data-step="2"]');
-  if (!state.status.bilder) { bildSteg.classList.add("skipped"); bildSteg.textContent = "Bilder – kopplas in senare"; }
-  setStep(0);
-  const started = Date.now();
-  const timer = setInterval(() => {
-    btn.lastChild.textContent = ` Genererar… ${Math.round((Date.now() - started) / 1000)} s`;
-  }, 1000);
-
   try {
-    const res = await fetch("/api/generera", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ huvudsokord, sekundara_sokord: state.sekundara }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(Array.isArray(data.detail) ? "Kontrollera sökorden" : data.detail || `Fel ${res.status}`);
-    }
-    let article = null;
-    for await (const ev of readEvents(res)) {
-      if (ev.typ === "steg") setStep(ev.steg);
-      else if (ev.typ === "framsteg") $('#progress li[data-step="1"]').textContent = `Skriver artikeln… ${ev.tecken.toLocaleString("sv-SE")} tecken`;
-      else if (ev.typ === "fel") throw new Error(ev.meddelande);
-      else if (ev.typ === "klar") article = ev.artikel;
-    }
-    if (!article) throw new Error("Anslutningen bröts innan artikeln var klar. Försök igen.");
-    $$("#progress li:not(.skipped)").forEach((li) => { li.classList.remove("active"); li.classList.add("done"); });
-    $('#progress li[data-step="1"]').textContent = STEG_TEXT[1];
-    setArticle(article);
-    toast(article.demo ? "Demotext – lägg in ANTHROPIC_API_KEY för AI-text" : "Artikeln är klar – granska och redigera");
+    const rec = await api("/api/artiklar", { huvudsokord, sekundara_sokord: state.sekundara });
+    await api(`/api/artiklar/${rec.id}/generera`, {});
+    $("#huvudsokord").value = "";
+    state.sekundara = [];
+    briefChips.render();
+    $("#progress").hidden = true;
+    await openArticle(rec.id);
+    await loadQueue();
+    toast("Artikeln ligger i kön och genereras nu");
   } catch (err) {
-    toast(err.message || "Något gick fel");
-    $$("#progress li.active").forEach((li) => li.classList.replace("active", "failed"));
+    toast(err.message);
   } finally {
-    clearInterval(timer);
-    btn.lastChild.textContent = " Generera artikel";
     btn.disabled = false;
-    btn.classList.remove("loading");
   }
 });
 
@@ -187,15 +202,11 @@ function setArticle(article) {
   $("#meta_beskrivning").value = article.meta_beskrivning;
   $("#slug").value = article.slug;
   $("#htmlEditor").value = article.html;
-  $("#huvudsokord").value = article.huvudsokord || "";
-  state.sekundara = [...(article.sekundara_sokord || [])];
-  renderChips();
   renderKeywords();
   renderIntent();
   renderImages();
   renderSeo();
   renderPreview();
-  save();
 }
 
 const INTENT_NAMN = { informativ: "Informativ", kommersiell: "Kommersiell", transaktionell: "Transaktionell", navigerande: "Navigerande" };
@@ -433,9 +444,367 @@ $("#wpBtn").addEventListener("click", async () => {
   } catch (err) { toast(err.message); }
 });
 
+/* ---------- Vyer ---------- */
+function showView(view) {
+  $("#queueView").hidden = view !== "queue";
+  $("#editorView").hidden = view !== "editor";
+  $$(".view-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  remember(VIEW_KEY, view);
+  if (view === "queue") loadQueue();
+}
+$$(".view-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+$("#backBtn").addEventListener("click", () => showView("queue"));
+
+/* ---------- Artikelkö ---------- */
+let pollTimer = null;
+
+async function loadQueue() {
+  try {
+    state.queue = (await api("/api/artiklar")).artiklar;
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  renderQueue();
+  // Håll editorn i synk med artikeln som är öppen.
+  const open = state.current && state.queue.find((a) => a.id === state.current.id);
+  if (open) {
+    renderProgress(open);
+    if (open.status !== state.current.status) openArticle(open.id, { keepView: true });
+  }
+  clearTimeout(pollTimer);
+  if (state.queue.some((a) => a.status === "genereras")) pollTimer = setTimeout(loadQueue, 2000);
+}
+
+function renderFilters() {
+  const antal = { alla: state.queue.length };
+  state.queue.forEach((a) => { antal[a.status] = (antal[a.status] || 0) + 1; });
+  const filter = ["alla", ...Object.keys(STATUS_NAMN)].filter((k) => k === "alla" || antal[k]);
+  if (!filter.includes(state.filter)) state.filter = "alla";
+  $("#filters").innerHTML = filter.map((k) =>
+    `<button type="button" class="filter${state.filter === k ? " active" : ""}" data-filter="${k}">${k === "alla" ? "Alla" : STATUS_NAMN[k]}<b>${antal[k]}</b></button>`
+  ).join("");
+  $("#queueCount").textContent = antal.granskas ? String(antal.granskas) : "";
+  $("#queueCount").title = antal.granskas ? `${antal.granskas} väntar på granskning` : "";
+}
+
+function statusBadge(status) {
+  return `<span class="status-badge s-${status}">${STATUS_NAMN[status] || status}</span>`;
+}
+
+function queueActions(a) {
+  const b = (act, text, cls = "btn-ghost") => `<button type="button" class="btn ${cls} btn-sm" data-act="${act}" data-id="${a.id}">${text}</button>`;
+  const ut = [];
+  if (a.status === "granskas") ut.push(b("open", "Granska", "btn-primary"));
+  else if (a.har_innehall && a.status !== "genereras") ut.push(b("open", "Öppna"));
+  if (a.status === "utkast" && !a.har_innehall) ut.push(b("generate", "Generera", "btn-primary"));
+  if (a.status === "utkast" && a.andringar) ut.push(b("generate", "Generera om med ändringar"));
+  if (a.status === "fel") ut.push(b("generate", "Försök igen", "btn-primary"));
+  if (a.status === "avvisad") ut.push(b("restore", "Återställ"));
+  if (!["genereras", "schemalagd", "publicerad"].includes(a.status)) {
+    ut.push(b("edit", "Sökord"));
+    ut.push(b("delete", "Ta bort", "btn-ghost btn-danger"));
+  }
+  return ut.join("");
+}
+
+function renderQueue() {
+  renderFilters();
+  const lista = state.queue.filter((a) => state.filter === "alla" || a.status === state.filter);
+  const kanFlytta = state.filter === "alla";
+  $("#queueEmpty").hidden = state.queue.length > 0;
+  $("#queueList").innerHTML = lista.map((a) => {
+    const i = state.queue.indexOf(a);
+    const notes = [];
+    if (a.status === "genereras") {
+      const f = a.forlopp;
+      notes.push(`<div class="q-note info">${f && f.steg >= 1 ? `Skriver… ${(f.tecken || 0).toLocaleString("sv-SE")} tecken` : "Analyserar sökintention…"}</div>`);
+    }
+    if (a.fel) notes.push(`<div class="q-note bad">⚠ ${esc(a.fel)}</div>`);
+    if (a.andringar) notes.push(`<div class="q-note warn">Begärda ändringar: ${esc(a.andringar)}</div>`);
+    if (a.liknande.length) {
+      notes.push(`<div class="q-note warn">Liknar ${a.liknande.map((l) => `<a href="#" data-act="goto" data-id="${l.id}">”${esc(l.huvudsokord)}”</a>`).join(", ")} – risk att artiklarna konkurrerar om samma sökningar</div>`);
+    }
+    return `<li class="q-item" data-id="${a.id}" draggable="${kanFlytta}">
+      <div class="q-order">
+        <button type="button" class="q-handle" aria-hidden="true" tabindex="-1" ${kanFlytta ? "" : "disabled"}>⋮⋮</button>
+        <span class="q-pos">${i + 1}</span>
+        <span class="q-move">
+          <button type="button" data-act="up" data-id="${a.id}" aria-label="Flytta upp" ${!kanFlytta || i === 0 ? "disabled" : ""}>▲</button>
+          <button type="button" data-act="down" data-id="${a.id}" aria-label="Flytta ned" ${!kanFlytta || i === state.queue.length - 1 ? "disabled" : ""}>▼</button>
+        </span>
+      </div>
+      <div class="q-main">
+        <div class="q-kw">${esc(a.huvudsokord)}</div>
+        ${a.titel ? `<div class="q-title">${esc(a.titel)}</div>` : ""}
+        ${a.sekundara_sokord.length ? `<div class="chips">${a.sekundara_sokord.map((s) => `<span class="chip">${esc(s)}</span>`).join("")}</div>` : ""}
+        ${notes.join("")}
+      </div>
+      <div class="q-side">${statusBadge(a.status)}${queueActions(a)}</div>
+    </li>`;
+  }).join("");
+}
+
+async function moveTo(ids) {
+  const byId = Object.fromEntries(state.queue.map((a) => [a.id, a]));
+  state.queue = ids.map((id) => byId[id]);
+  renderQueue();
+  try { await api("/api/artiklar/ordning", { ids }, "PUT"); } catch (err) { toast(err.message); loadQueue(); }
+}
+
+function editKeywords(id) {
+  const a = state.queue.find((x) => x.id === id);
+  const li = $(`.q-item[data-id="${id}"] .q-main`);
+  li.innerHTML = `<form class="q-edit">
+      <input type="text" name="huvud" value="${esc(a.huvudsokord)}" aria-label="Huvudsökord" required minlength="2" maxlength="120">
+      <input type="text" name="sek" value="${esc(a.sekundara_sokord.join(", "))}" aria-label="Sekundära sökord" placeholder="Sekundära sökord, kommaseparerade">
+      <div class="q-edit-actions"><button class="btn btn-primary btn-sm" type="submit">Spara</button><button class="btn btn-ghost btn-sm" type="button" data-act="cancel">Avbryt</button></div>
+    </form>`;
+  const form = $("form", li);
+  form.huvud.focus();
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await api(`/api/artiklar/${id}/sokord`, {
+        huvudsokord: form.huvud.value,
+        sekundara_sokord: form.sek.value.split(",").map((s) => s.trim()).filter(Boolean),
+      }, "PATCH");
+      toast(a.har_innehall ? "Sökorden är sparade – generera om texten för att använda dem" : "Sökorden är sparade");
+      loadQueue();
+    } catch (err) { toast(err.message); }
+  });
+}
+
+$("#filters").addEventListener("click", (e) => {
+  const f = e.target.closest("[data-filter]");
+  if (!f) return;
+  state.filter = f.dataset.filter;
+  renderQueue();
+});
+
+$("#queueList").addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  e.preventDefault();
+  const id = Number(el.dataset.id);
+  const ids = state.queue.map((a) => a.id);
+  const i = ids.indexOf(id);
+  try {
+    switch (el.dataset.act) {
+      case "open": await openArticle(id); break;
+      case "goto": $(`.q-item[data-id="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }); break;
+      case "generate": await api(`/api/artiklar/${id}/generera`, {}); toast("Genereringen har startat"); await loadQueue(); break;
+      case "restore": await api(`/api/artiklar/${id}/aterstall`, {}); await loadQueue(); break;
+      case "edit": editKeywords(id); break;
+      case "cancel": renderQueue(); break;
+      case "up": if (i > 0) { [ids[i - 1], ids[i]] = [ids[i], ids[i - 1]]; await moveTo(ids); } break;
+      case "down": if (i < ids.length - 1) { [ids[i + 1], ids[i]] = [ids[i], ids[i + 1]]; await moveTo(ids); } break;
+      case "delete": {
+        const a = state.queue[i];
+        if (!confirm(`Ta bort ”${a.huvudsokord}” från kön?${a.har_innehall ? " Den genererade texten försvinner." : ""}`)) return;
+        await api(`/api/artiklar/${id}`, undefined, "DELETE");
+        if (state.current?.id === id) { state.current = null; state.article = null; }
+        await loadQueue();
+        break;
+      }
+    }
+  } catch (err) { toast(err.message); }
+});
+
+// Dra och släpp för att ändra ordning.
+let dragId = null;
+$("#queueList").addEventListener("dragstart", (e) => {
+  const li = e.target.closest(".q-item");
+  if (!li || state.filter !== "alla") return;
+  dragId = Number(li.dataset.id);
+  li.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+});
+$("#queueList").addEventListener("dragover", (e) => {
+  if (dragId === null) return;
+  e.preventDefault();
+  $$(".q-item.drop-before").forEach((x) => x.classList.remove("drop-before"));
+  e.target.closest(".q-item")?.classList.add("drop-before");
+});
+$("#queueList").addEventListener("drop", (e) => {
+  e.preventDefault();
+  const target = e.target.closest(".q-item");
+  if (dragId === null || !target) return;
+  const ids = state.queue.map((a) => a.id).filter((id) => id !== dragId);
+  ids.splice(ids.indexOf(Number(target.dataset.id)), 0, dragId);
+  moveTo(ids);
+});
+$("#queueList").addEventListener("dragend", () => {
+  dragId = null;
+  $$(".q-item.dragging, .q-item.drop-before").forEach((x) => x.classList.remove("dragging", "drop-before"));
+});
+
+$("#addForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  queueChips.flush();
+  try {
+    await api("/api/artiklar", { huvudsokord: $("#qHuvud").value, sekundara_sokord: state.qSekundara });
+    $("#qHuvud").value = "";
+    state.qSekundara = [];
+    queueChips.render();
+    $("#qHuvud").focus();
+    await loadQueue();
+  } catch (err) { toast(err.message); }
+});
+
+$("#csvInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const res = await fetch("/api/artiklar/import", { method: "POST", headers: { "Content-Type": "text/csv" }, body: await file.arrayBuffer() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Fel ${res.status}`);
+    const dubb = data.dubbletter.length ? `, ${data.dubbletter.length} fanns redan och hoppades över` : "";
+    toast(`${data.importerade} artiklar importerade${dubb}`);
+    await loadQueue();
+  } catch (err) { toast(err.message); }
+});
+
+$("#genAllBtn").addEventListener("click", async () => {
+  const antal = state.queue.filter((a) => a.status === "utkast" && !a.har_innehall).length;
+  if (!antal) { toast("Det finns inga utkast som behöver genereras"); return; }
+  if (!confirm(`Generera ${antal} artiklar med AI? De sparas som Väntar på granskning.`)) return;
+  try {
+    const res = await api("/api/artiklar/generera-alla", {});
+    toast(`${res.startade} artiklar genereras – två åt gången`);
+    await loadQueue();
+  } catch (err) { toast(err.message); }
+});
+
+/* ---------- Öppna artikel och granskning ---------- */
+async function openArticle(id, { keepView = false } = {}) {
+  let rec;
+  try { rec = await api(`/api/artiklar/${id}`); } catch (err) { toast(err.message); return; }
+  state.current = rec;
+  remember("kh-studio-artikel", String(id));
+  if (!keepView) showView("editor");
+  $("#progress").hidden = rec.status !== "genereras";
+  if (rec.status === "genereras") { resetProgress(); renderProgress(rec); }
+  $("#saveState").textContent = "";
+  if (rec.innehall && rec.status !== "genereras") {
+    setArticle(rec.innehall);
+  } else {
+    state.article = null;
+    $("#editor").hidden = true;
+    $("#checksCard").hidden = true;
+    $("#empty").hidden = false;
+    $("#empty h1").textContent = rec.status === "genereras" ? `Genererar ”${rec.huvudsokord}”` : `”${rec.huvudsokord}” har ingen text ännu`;
+    $("#empty p").textContent = rec.status === "genereras"
+      ? "AI:n arbetar på servern och fortsätter även om du stänger fönstret. Förloppet syns till vänster."
+      : "Gå till artikelkön och välj Generera, eller skapa en ny artikel i formuläret.";
+  }
+  renderReview();
+  renderHistory();
+}
+
+function renderReview() {
+  const rec = state.current;
+  if (!rec) return;
+  const s = rec.status;
+  $("#statusBadge").className = `status-badge s-${s}`;
+  $("#statusBadge").textContent = STATUS_NAMN[s];
+  const visa = {
+    regenBtn: ["utkast", "granskas", "fel"].includes(s),
+    toReviewBtn: s === "utkast" && rec.har_innehall,
+    rejectBtn: ["utkast", "granskas", "godkand", "fel"].includes(s),
+    changesBtn: ["granskas", "godkand"].includes(s),
+    revokeBtn: s === "godkand",
+    approveBtn: s === "granskas",
+  };
+  Object.entries(visa).forEach(([id, v]) => { $("#" + id).hidden = !v; });
+  $("#regenBtn").textContent = rec.andringar ? "Generera om med ändringar" : "Generera om text";
+
+  const notice = $("#notice");
+  let text = "", cls = "";
+  if (s === "fel") { text = `Genereringen misslyckades: ${rec.fel}`; cls = "bad"; }
+  else if (rec.andringar) text = `Begärda ändringar: ”${rec.andringar}”. Redigera texten och skicka till granskning, eller generera om med ändringarna.`;
+  else if (s === "godkand") { text = `Godkänd ${formatTid(rec.godkand_at)}. Om du ändrar något måste artikeln godkännas igen.`; cls = "ok"; }
+  else if (s === "avvisad") text = "Artikeln är avvisad. Återställ den från artikelkön om du vill använda den.";
+  else if (s === "granskas") text = "Granska text, SEO, bilder och metadata. Godkänn artikeln när den är klar för publicering.";
+  notice.hidden = !text || !rec.innehall;
+  notice.className = "notice" + (cls ? " " + cls : "");
+  notice.textContent = text;
+
+  const kanRedigera = REDIGERBAR.includes(s) && rec.har_innehall;
+  $("#editor").classList.toggle("readonly", !kanRedigera);
+  $$("#editor .panel input, #editor .panel textarea:not(#codeOut), #titel").forEach((el) => { el.readOnly = !kanRedigera; });
+  $("#editToggle").disabled = !kanRedigera;
+  if (!kanRedigera && state.editing) { $("#editToggle").checked = false; state.editing = false; $("#frameWrap").classList.remove("editing"); renderPreview(); }
+}
+
+const HANDLING_NAMN = {
+  genererad: "Text genererad", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
+  andringar_begarda: "Ändringar begärda", avvisad: "Avvisad", aterstalld: "Återställd",
+  godkannande_aterkallat: "Godkännande återkallat", godkannande_upphavt: "Godkännande upphävt",
+};
+function renderHistory() {
+  const h = state.current?.historik || [];
+  $("#historyCard").hidden = !h.length;
+  $("#history").innerHTML = h.map((x) => `<li><strong>${esc(HANDLING_NAMN[x.handling] || x.handling)}</strong>
+    ${x.kommentar ? `<q>${esc(x.kommentar)}</q>` : ""}<time>${formatTid(x.tid)}</time></li>`).join("");
+}
+
+function askComment({ title, text, ok, required }) {
+  const dlg = $("#commentDialog");
+  $("#dialogTitle").textContent = title;
+  $("#dialogText").textContent = text;
+  $("#dialogOk").textContent = ok;
+  $("#dialogComment").value = "";
+  $("#dialogComment").required = required;
+  dlg.showModal();
+  return new Promise((resolve) => {
+    dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok" ? $("#dialogComment").value.trim() : null), { once: true });
+  });
+}
+
+async function reviewAction(path, body, message) {
+  const id = state.current.id;
+  try {
+    await api(`/api/artiklar/${id}/${path}`, body);
+    toast(message);
+    await openArticle(id, { keepView: true });
+    loadQueue();
+  } catch (err) { toast(err.message); }
+}
+
+$("#approveBtn").addEventListener("click", () => reviewAction("godkann", {}, "Artikeln är godkänd"));
+$("#revokeBtn").addEventListener("click", () => reviewAction("aterkalla", {}, "Godkännandet är återkallat"));
+$("#toReviewBtn").addEventListener("click", () => reviewAction("skicka-till-granskning", {}, "Skickad till granskning"));
+$("#changesBtn").addEventListener("click", async () => {
+  const kommentar = await askComment({
+    title: "Begär ändringar", ok: "Begär ändringar", required: true,
+    text: "Beskriv vad som ska ändras. Artikeln går tillbaka till utkast. Du kan redigera den själv eller låta AI:n skriva om den utifrån kommentaren.",
+  });
+  if (kommentar) reviewAction("begar-andringar", { kommentar }, "Ändringarna är begärda – artikeln är nu ett utkast");
+});
+$("#rejectBtn").addEventListener("click", async () => {
+  const kommentar = await askComment({
+    title: "Avvisa artikeln", ok: "Avvisa", required: false,
+    text: "Artikeln flyttas till Avvisad och kan inte godkännas eller publiceras. Du kan återställa den senare. Ange gärna ett skäl.",
+  });
+  if (kommentar !== null) reviewAction("avvisa", { kommentar }, "Artikeln är avvisad");
+});
+$("#regenBtn").addEventListener("click", async () => {
+  const rec = state.current;
+  if (rec.har_innehall && !confirm(rec.andringar ? "AI:n skriver om artikeln utifrån dina begärda ändringar. Fortsätta?" : "Den nuvarande texten ersätts av en ny version. Fortsätta?")) return;
+  try {
+    await api(`/api/artiklar/${rec.id}/generera`, {});
+    await openArticle(rec.id, { keepView: true });
+    loadQueue();
+  } catch (err) { toast(err.message); }
+});
+
 /* ---------- Start ---------- */
 loadStatus();
-try {
-  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-  if (saved && saved.html) setArticle(saved);
-} catch { /* inget sparat utkast */ }
+(async () => {
+  await loadQueue();
+  const senaste = Number(recall("kh-studio-artikel"));
+  if (senaste && state.queue.some((a) => a.id === senaste)) await openArticle(senaste, { keepView: true });
+  showView(recall(VIEW_KEY) === "editor" ? "editor" : "queue");
+})();

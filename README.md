@@ -2,14 +2,53 @@
 
 En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord, och studion tar fram en artikel med fyra bilder i WebP-format, metatitel, metabeskrivning, URL-slug och alt-texter. Du granskar och redigerar artikeln och skickar den sedan till WordPress som **utkast**.
 
-## Status
+## Status och plan
 
-| Steg | Innehåll | Status |
+| Etapp | Innehåll | Status |
 |---|---|---|
-| 1 | Gränssnitt, förhandsgranskning, redigering, SEO-kontroll, export av WordPress-kod | ✅ Klart |
-| 2 | AI-genererad artikel utifrån sökintention (Claude) | ✅ Klart |
-| 3 | 4 AI-bilder → komprimerad WebP | Nästa steg |
-| 4 | Skicka till WordPress som utkast (inkl. metadata för Yoast/Rank Math) | Planerat |
+| 1 | Gränssnitt, förhandsgranskning, redigering, SEO-kontroll, export | ✅ |
+| 2 | AI-genererad artikel utifrån sökintention (Claude) | ✅ |
+| 3 | **Artikelkö och granskning:** databas, CSV-import, ordning, generera alla, Godkänn/Begär ändringar/Avvisa, historik, varning för liknande sökord | ✅ |
+| 4 | Bilder: 4 AI-bilder → komprimerad WebP med beskrivande filnamn, generera om text eller bilder separat | Nästa |
+| 5 | WordPress: anslutning, kontroll av SEO-plugin och API-fält, mediauppladdning, utkast med Custom HTML-block, CSS via litet tilläggsplugin, kontroll mot redan publicerade artiklar, internlänkförslag, testläge | Planerat |
+| 6 | Schemaläggning: startdatum, klockslag (Europe/Stockholm), ett godkänt inlägg per dag, `status=future` i WordPress, kalender, ändra datum, pausa, återkalla före publicering, skydd mot dubbelpublicering, kontroll att WordPress verkligen publicerat | Planerat |
+| 7 | Drift: körning på server, säkerhetskopior av databasen, loggar utan hemligheter | Planerat |
+
+## Granskningsflödet
+
+| Status | Betyder | Vad du kan göra |
+|---|---|---|
+| Utkast | Planerat sökord, eller en artikel där du begärt ändringar | Generera, redigera sökord, redigera texten, skicka till granskning, avvisa |
+| Genereras | AI:n skriver på servern (fortsätter även om webbläsaren stängs) | Vänta |
+| Väntar på granskning | Klar för din granskning | **Godkänn artikel**, **Begär ändringar**, **Avvisa**, redigera, generera om |
+| Godkänd | Du har godkänt exakt den här versionen | Återkalla godkännande, begär ändringar, avvisa |
+| Schemalagd / Publicerad | Kommer i etapp 6 | |
+| Fel | Genereringen misslyckades; felet visas | Försök igen |
+| Avvisad | Arkiverad, kan inte godkännas | Återställ |
+
+Regler som servern upprätthåller, oavsett vad som skickas från webbläsaren:
+- Bara artiklar som väntar på granskning kan godkännas.
+- Om en godkänd artikel ändras upphävs godkännandet, och den måste godkännas igen.
+- Varje godkännande sparas med en kontrollsumma av innehållet. Schemaläggningen i etapp 6 kommer bara att godta innehåll som matchar ett godkännande.
+- Alla beslut loggas permanent i tabellen `handelser` och visas under Historik.
+- Databasen ligger i `data/studio.db` (SQLite) och är undantagen från git.
+
+### CSV-format
+
+En artikel per rad. Första kolumnen är huvudsökordet, och resten är sekundära sökord, antingen i egna kolumner eller i samma cell åtskilda med komma eller `|`. Semikolon (svensk Excel), komma och tabb fungerar som avgränsare. En rubrikrad är valfri. Huvudsökord som redan finns i kön hoppas över.
+
+```
+Huvudsökord;Sekundära sökord
+värmepump i gammalt hus;luft-vatten, kostnad
+fukt i källare;dränering, lukt
+```
+
+## Tester
+
+```bash
+pip install pytest httpx
+python -m pytest -q
+```
 
 ## Kom igång
 
@@ -92,6 +131,9 @@ app/
   main.py          FastAPI-server och API
   config.py        Läser inställningar och hemligheter från .env
   ai_writer.py     Prompt och anrop till Claude
+  db.py            SQLite: artikelkö och granskningslogg
+  jobb.py          Generering i bakgrunden (max 2 samtidigt)
+  planering.py     CSV-import och kontroll av liknande sökord
   sanitize.py      Rensar AI:ns HTML med en tillåtelselista
   demo.py          Demoartikel när ingen API-nyckel finns
   render.py        Bygger WordPress-koden

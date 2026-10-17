@@ -6,3 +6,4 @@ utdata/
 cache/
 *.key
 secrets/
+data/

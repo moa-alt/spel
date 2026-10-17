@@ -20,6 +20,10 @@
         <div class="brand-sub">Automatiserad SEO-produktion</div>
       </div>
     </div>
+    <nav class="views" aria-label="Vyer">
+      <button class="view-btn active" data-view="queue" type="button">Artikelkö <span class="view-count" id="queueCount"></span></button>
+      <button class="view-btn" data-view="editor" type="button">Editor</button>
+    </nav>
     <div class="status" id="status" aria-label="Integrationer">
       <span class="pill" data-key="ai_text"><i></i>AI-text</span>
       <span class="pill" data-key="bilder"><i></i>Bilder</span>
@@ -27,7 +31,47 @@
     </div>
   </header>
 
-  <div class="layout">
+  <!-- Artikelkö -->
+  <div class="queue-view" id="queueView">
+    <div class="queue-head">
+      <div>
+        <h1>Artikelkö</h1>
+        <p class="muted">Planera sökord, generera utkast och granska varje artikel. Inget schemaläggs eller publiceras utan ditt godkännande.</p>
+      </div>
+      <div class="actions">
+        <label class="btn btn-ghost" for="csvInput" title="En artikel per rad: huvudsökord;sekundärt 1, sekundärt 2">
+          Importera CSV
+          <input id="csvInput" type="file" accept=".csv,text/csv,text/plain" hidden>
+        </label>
+        <button class="btn btn-primary" id="genAllBtn" type="button">Generera alla utkast</button>
+      </div>
+    </div>
+
+    <form class="card add-form" id="addForm" autocomplete="off">
+      <label class="field">
+        <span class="label">Huvudsökord</span>
+        <input id="qHuvud" type="text" placeholder="t.ex. värmepump i gammalt hus" required minlength="2" maxlength="120">
+      </label>
+      <div class="field">
+        <span class="label">Sekundära sökord <small>Enter eller komma</small></span>
+        <div class="chips-input" id="qChipsBox">
+          <div id="qChips" class="chips"></div>
+          <input id="qChipInput" type="text" placeholder="t.ex. luft-vatten, kostnad">
+        </div>
+      </div>
+      <button class="btn btn-primary" type="submit">Lägg till i kön</button>
+    </form>
+
+    <div class="filters" id="filters" role="group" aria-label="Filtrera på status"></div>
+
+    <ol class="queue" id="queueList"></ol>
+    <div class="empty queue-empty" id="queueEmpty" hidden>
+      <h1>Kön är tom</h1>
+      <p>Lägg till ett huvudsökord ovan eller importera en CSV-fil med en artikel per rad. Format: <code>huvudsökord;sekundärt 1, sekundärt 2</code></p>
+    </div>
+  </div>
+
+  <div class="layout" id="editorView" hidden>
     <!-- Vänsterspalt: brief -->
     <aside class="sidebar">
       <form id="brief" class="card" autocomplete="off">
@@ -63,6 +107,11 @@
         <h2 class="card-title">SEO-kontroll <span class="score" id="score"></span></h2>
         <ul class="checks" id="checks"></ul>
       </section>
+
+      <section class="card" id="historyCard" hidden>
+        <h2 class="card-title">Historik</h2>
+        <ul class="history" id="history"></ul>
+      </section>
     </aside>
 
     <!-- Huvudyta -->
@@ -78,14 +127,31 @@
       <div class="editor" id="editor" hidden>
         <div class="editor-head">
           <div class="title-wrap">
+            <button class="btn btn-ghost btn-icon" id="backBtn" type="button" title="Tillbaka till artikelkön" aria-label="Tillbaka till artikelkön">←</button>
             <input id="titel" class="title-input" type="text" aria-label="Artikelns rubrik (H1)">
-            <span class="badge" id="demoBadge" hidden title="AI-generering kopplas in i nästa steg">Demotext</span>
+            <span class="badge" id="demoBadge" hidden title="Lägg in ANTHROPIC_API_KEY för AI-text">Demotext</span>
           </div>
           <div class="actions">
             <button class="btn btn-ghost" id="copyBtn" type="button">Kopiera kod</button>
             <button class="btn btn-primary" id="wpBtn" type="button">Skicka som utkast</button>
           </div>
         </div>
+
+        <div class="review-bar" id="reviewBar">
+          <div class="review-status">
+            <span class="status-badge" id="statusBadge"></span>
+            <span class="muted" id="saveState"></span>
+          </div>
+          <div class="review-actions">
+            <button class="btn btn-ghost" id="regenBtn" type="button">Generera om text</button>
+            <button class="btn btn-ghost" id="toReviewBtn" type="button">Skicka till granskning</button>
+            <button class="btn btn-ghost btn-danger" id="rejectBtn" type="button">Avvisa</button>
+            <button class="btn btn-ghost" id="changesBtn" type="button">Begär ändringar</button>
+            <button class="btn btn-ghost" id="revokeBtn" type="button">Återkalla godkännande</button>
+            <button class="btn btn-approve" id="approveBtn" type="button">Godkänn artikel</button>
+          </div>
+        </div>
+        <div class="notice" id="notice" hidden></div>
 
         <nav class="tabs" role="tablist">
           <button role="tab" class="tab active" data-tab="preview">Förhandsgranskning</button>
@@ -171,6 +237,18 @@
       </div>
     </main>
   </div>
+
+  <dialog class="dialog" id="commentDialog">
+    <form method="dialog">
+      <h2 id="dialogTitle"></h2>
+      <p class="muted" id="dialogText"></p>
+      <textarea id="dialogComment" rows="5"></textarea>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Avbryt</button>
+        <button class="btn btn-primary" id="dialogOk" value="ok" type="submit"></button>
+      </div>
+    </form>
+  </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>
