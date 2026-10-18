@@ -75,6 +75,8 @@ def init() -> None:
     with _conn() as c:
         c.execute("PRAGMA journal_mode = WAL")
         c.executescript(SCHEMA)
+        # Tillagt i senare version: adressen till det publicerade inlägget.
+        lagg_till_kolumn(c, "artiklar", "wp_lank", "TEXT")
         # Generering som pågick när servern stängdes av kan inte återupptas.
         c.execute(
             "UPDATE artiklar SET status = 'fel', fel = ?, uppdaterad = ? WHERE status = 'genereras'",
@@ -100,6 +102,7 @@ def _rad(r: sqlite3.Row, med_innehall: bool) -> dict:
         "godkand_at": r["godkand_at"],
         "godkand_hash": r["godkand_hash"],
         "wp_post_id": r["wp_post_id"],
+        "wp_lank": r["wp_lank"] if "wp_lank" in r.keys() else None,
         "publiceras_at": r["publiceras_at"],
         "mal_slug": r["mal_slug"] if "mal_slug" in r.keys() else None,
         "skapad": r["skapad"],

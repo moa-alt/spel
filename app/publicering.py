@@ -15,7 +15,10 @@ så att inget publiceras dubbelt.
 import asyncio
 import json
 import logging
+import os
+import socket
 import sqlite3
+import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -28,6 +31,10 @@ TZ = ZoneInfo("Europe/Stockholm")
 INTERVALL_SEKUNDER = 30
 MAX_FORSOK = 3
 STANDARD_KLOCKSLAG = time(7, 0)
+
+# Bara den instans som håller låset kör schemaläggaren (skydd om två serverprocesser startar samtidigt).
+LAS_SEKUNDER = 120
+INSTANS = f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
 
 AKTIVA = ("planerad", "publicerar")
 # Statusar som upptar en kalenderdag.
@@ -144,15 +151,23 @@ def _upptagna_dagar(c) -> set[str]:
 
 
 def _kontrollera_godkand(artikel: dict) -> None:
+    from .kvalitet import kontrollera, sammanfattning
+
     if artikel["status"] != "godkand":
         raise PubliceringsFel(f"”{artikel['huvudsokord']}” är inte godkänd och kan inte schemaläggas.")
     if not artikel["godkand_hash"] or db.innehall_hash(artikel["innehall"]) != artikel["godkand_hash"]:
         raise PubliceringsFel(f"”{artikel['huvudsokord']}” har ändrats efter godkännandet och måste granskas igen.")
+    resultat = kontrollera(artikel)
+    if resultat["kritiska"]:
+        raise PubliceringsFel(f"”{artikel['huvudsokord']}” har kritiska fel: {sammanfattning(resultat)}")
 
 
 def schemalagg(artikel_ids: list[int], startdatum: date, klockslag: time = STANDARD_KLOCKSLAG,
-               nu: datetime | None = None) -> list[dict]:
-    """Lägger godkända artiklar i ordning på första lediga dag från startdatum, en per dag."""
+               nu: datetime | None = None, exakt: bool = False) -> list[dict]:
+    """Lägger godkända artiklar i ordning på första lediga dag från startdatum, en per dag.
+
+    exakt: en enda artikel på exakt det datumet och klockslaget; är dagen upptagen eller tiden passerad blir det fel.
+    """
     nu = nu or nu_utc()
     if startdatum < idag_lokalt(nu):
         raise PubliceringsFel("Startdatumet har redan passerat.")
@@ -161,11 +176,18 @@ def schemalagg(artikel_ids: list[int], startdatum: date, klockslag: time = STAND
         raise PubliceringsFel("En av artiklarna finns inte längre.")
     for a in artiklar:
         _kontrollera_godkand(a)
+    if exakt and len(artiklar) != 1:
+        raise PubliceringsFel("Välj en artikel i taget när du anger exakt datum och klockslag.")
 
     resultat = []
     with db._conn() as c:
         upptagna = _upptagna_dagar(c)
         dag = startdatum
+        if exakt:
+            if startdatum.isoformat() in upptagna:
+                raise PubliceringsFel(f"{startdatum.isoformat()} har redan en publicering. Välj en annan dag.")
+            if lokal_tid(startdatum, klockslag) <= nu + timedelta(minutes=5):
+                raise PubliceringsFel("Tiden har redan passerat eller ligger för nära. Välj en senare tid.")
         for a in artiklar:
             # Hoppa över upptagna dagar och tider som redan passerat.
             while dag.isoformat() in upptagna or lokal_tid(dag, klockslag) <= nu + timedelta(minutes=5):
@@ -241,7 +263,7 @@ def _satt_slot(c, slot_id: int, **falt) -> None:
 def _avsluta(slot: dict, slot_status: str, artikel_status: str, handling: str, kommentar: str, **artikel_falt) -> None:
     with db._conn() as c:
         _satt_slot(c, slot["id"], status=slot_status, fel=kommentar if slot_status in ("fel", "missad", "avbokad") else None,
-                   wp_post_id=artikel_falt.get("wp_post_id"), wp_lank=artikel_falt.pop("wp_lank", None))
+                   wp_post_id=artikel_falt.get("wp_post_id"), wp_lank=artikel_falt.get("wp_lank"))
         falt = {"status": artikel_status, "uppdaterad": db.nu(), **artikel_falt}
         if artikel_status != "publicerad":
             falt["publiceras_at"] = None
@@ -267,6 +289,15 @@ async def _publicera(slot: dict, nu: datetime, transport=None) -> None:
                  godkand_at=None, godkand_hash=None)
         return
 
+    # Kvalitetskontrollen görs om: sajten kan ha ändrats sedan godkännandet (t.ex. en länkad sida som tagits bort).
+    from .kvalitet import kontrollera, sammanfattning
+
+    kvalitet = kontrollera(artikel)
+    if kvalitet["kritiska"]:
+        _avsluta(slot, "fel", "godkand", "publicering_stoppad",
+                 f"Kvalitetskontrollen stoppade publiceringen: {sammanfattning(kvalitet)} Åtgärda och schemalägg igen.")
+        return
+
     lage = config.settings.publicering
     if lage == "simulering":
         _avsluta(slot, "simulerad", "godkand", "publicering_simulerad",
@@ -276,10 +307,14 @@ async def _publicera(slot: dict, nu: datetime, transport=None) -> None:
     wp_status = "publish" if lage == "skarp" else "draft"
     try:
         async with WordPress(transport=transport) as wp:
-            post = await wp.spara_inlagg(artikel, wp_status)
+            post = await wp.spara_inlagg(artikel, wp_status,
+                                         datum_gmt=fran_utc_text(slot["tid_utc"]).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"))
     except WordPressFel as e:
         forsok = slot["forsok"] + 1
-        if forsok >= MAX_FORSOK:
+        if not e.tillfalligt:
+            # Fel som inte går över av sig självt (behörighet, ogiltiga fält) försöks inte igen.
+            _avsluta(slot, "fel", "godkand", "publicering_misslyckad", f"{e} Felet går inte över av sig självt; åtgärda det och schemalägg igen.")
+        elif forsok >= MAX_FORSOK:
             _avsluta(slot, "fel", "godkand", "publicering_misslyckad", f"{e} Gav upp efter {forsok} försök.")
         else:
             with db._conn() as c:
@@ -363,15 +398,47 @@ async def _kartlagg_vid_behov() -> None:
         log.warning("Omkartläggning misslyckades: %s", e)
 
 
+def ta_las(nu: datetime | None = None, instans: str = INSTANS) -> bool:
+    """Tar eller förnyar schemaläggarlåset. Bara en instans åt gången håller det; ett övergivet lås går ut."""
+    nu = nu or nu_utc()
+    varde = json.dumps({"agare": instans, "till": till_utc_text(nu + timedelta(seconds=LAS_SEKUNDER))})
+    with db._conn() as c:
+        c.execute("INSERT OR IGNORE INTO installningar (nyckel, varde) VALUES ('schemalaggare_las', ?)",
+                  (json.dumps({"agare": "", "till": "1970-01-01T00:00:00+00:00"}),))
+        # Villkorad uppdatering i ett steg: två processer kan aldrig båda få låset.
+        cur = c.execute(
+            "UPDATE installningar SET varde = ? WHERE nyckel = 'schemalaggare_las' "
+            "AND (json_extract(varde, '$.agare') = ? OR json_extract(varde, '$.till') < ?)",
+            (varde, instans, till_utc_text(nu)))
+        return cur.rowcount == 1
+
+
+def slapp_las(instans: str = INSTANS) -> None:
+    with db._conn() as c:
+        c.execute("UPDATE installningar SET varde = ? WHERE nyckel = 'schemalaggare_las' AND json_extract(varde, '$.agare') = ?",
+                  (json.dumps({"agare": "", "till": "1970-01-01T00:00:00+00:00"}), instans))
+
+
 async def schemalaggare() -> None:
-    log.info("Schemaläggaren startad (läge: %s)", config.settings.publicering)
-    while True:
-        try:
-            await kor_en_gang()
-            await _kartlagg_vid_behov()
-            await asyncio.to_thread(daglig_sakerhetskopia)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.exception("Fel i schemaläggaren")
-        await asyncio.sleep(INTERVALL_SEKUNDER)
+    log.info("Schemaläggaren startad (läge: %s, instans %s)", config.settings.publicering, INSTANS)
+    vantar = False
+    try:
+        while True:
+            try:
+                if ta_las():
+                    if vantar:
+                        log.info("Schemaläggarlåset taget av %s", INSTANS)
+                    vantar = False
+                    await kor_en_gang()
+                    await _kartlagg_vid_behov()
+                    await asyncio.to_thread(daglig_sakerhetskopia)
+                elif not vantar:
+                    vantar = True
+                    log.warning("En annan instans kör schemaläggaren; den här väntar.")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Fel i schemaläggaren")
+            await asyncio.sleep(INTERVALL_SEKUNDER)
+    finally:
+        slapp_las()

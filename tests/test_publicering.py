@@ -32,7 +32,8 @@ class FalskWordPress:
         if path == "/wp/v2/users/me":
             return httpx.Response(200, json={"name": "Moa", "capabilities": {"publish_posts": True}})
         if path == "/wp/v2/posts" and request.method == "OPTIONS":
-            meta = {"_yoast_wpseo_title": {}, "_yoast_wpseo_metadesc": {}, "_kh_studio_id": {}} if self.plugin else {}
+            meta = ({"_yoast_wpseo_title": {}, "_yoast_wpseo_metadesc": {}, "_yoast_wpseo_focuskw": {}, "_kh_studio_id": {}}
+                    if self.plugin else {})
             return httpx.Response(200, json={"schema": {"properties": {"meta": {"properties": meta}}}})
         if path == "/wp/v2/posts" and request.method == "GET":
             slug = request.url.params.get("slug")
@@ -74,7 +75,7 @@ def godkand_artikel(klient, sokord="ventilation i gamla hus"):
         if db.hamta(a["id"])["status"] == "granskas":
             break
         time_mod.sleep(0.02)
-    assert klient.post(f"/api/artiklar/{a['id']}/godkann", json={"bekraftad": True}).status_code == 200
+    assert klient.post(f"/api/artiklar/{a['id']}/godkann", json={"bekraftad": True, "fakta_verifierade": True}).status_code == 200
     return a["id"]
 
 

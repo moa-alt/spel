@@ -15,6 +15,7 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 | 3b | **Ny design och mobilanpassning:** skandinaviskt ljust tema, mobile-first, granskningsvy för mobil, godkännande med bekräftelse | ✅ |
 | 6–7 | **Molndrift och publicering:** inloggning med sessioner, HTTPS, schemaläggare på servern (en artikel per dag, svensk tid), kalender, paus, ändra datum, skydd mot dubbelpublicering och ändrat innehåll, WordPress-klient och tilläggsplugin, nattliga säkerhetskopior, publiceringslogg, Docker och Fly.io. Se [DRIFT.md](DRIFT.md). | ✅ Förberett, inte driftsatt |
 | 8 | **SEO-karta och internlänkar (del A–C):** kartläggning av sajten via REST API, interaktiv karta med ämneskluster och pelarsidor, filter, verifierade problem, beräknade bedömningar, AI-förslag på nya artiklar som läggs i kön, verifierade internlänkar i nya artiklar | ✅ |
+| 10 | **Professionell publicering:** kvalitetskontroll som blockerar vid kritiska fel, faktagranskning, kalender med exakt datum och klockslag per artikel, kategori, fokusnyckelord och publiceringsdatum i WordPress, säkra återförsök, ett schemaläggarlås | ✅ Lokalt, inte driftsatt |
 | 9 | **Avancerad internlänkning:** klusterfärger och riktningspilar i kartan, huvudnyckelord, länkförslag (beräknade och AI) med exakt placering, godkännande en och en eller flera samtidigt, förhandsgranskning, uppdatering av publicerade artiklar med konfliktskydd, ändringshistorik och återställning, inkommande förslag för nya artiklar, omkartläggning efter publicering | ✅ |
 
 ## SEO-karta
@@ -202,6 +203,39 @@ Med `ANTHROPIC_API_KEY` i `.env` skriver Claude artikeln. Utan nyckel visas en d
 - Valfria inställningar: `STUDIO_CLAUDE_MODEL` (standard `claude-opus-5-5`) och `STUDIO_CLAUDE_EFFORT` (`low`–`max`, standard `high`). Lägre effort går snabbare och kostar mindre.
 
 Prompten finns i `app/ai_writer.py` (`SYSTEMPROMPT`). Där justerar du ton, längd och struktur.
+
+## Kvalitetskontroll före godkännande
+
+Servern kontrollerar varje artikel innan den kan godkännas. Kontrollen körs igen vid schemaläggning och precis före publicering. Resultatet visas i editorns sidospalt och i godkännandedialogen.
+
+| Kontroll | Kritiskt (blockerar) | Varning (du bedömer) |
+|---|---|---|
+| Huvudsökord och metadata | Sökordet saknas i H1 eller SEO-titel. SEO-titel, metabeskrivning eller giltig slug saknas. | Längder, sökordet saknas i metabeskrivning, slug eller första stycket |
+| Rubrikstruktur och sökintention | H1 i brödtexten, färre än två H2, tom rubrik | H3 före H2, saknade id, ingen analyserad sökintention, kommersiell intention utan priser eller jämförelser, kort text |
+| Bilder | Bildfil saknas på servern, alt-text saknas, testbild, bild som håller på att skapas | Bild ej skapad, ingen huvudbild, liten eller tung bild, alt-textens formulering |
+| Interna länkar | Länk till en sida som inte finns, eller till en artikel som inte är godkänd | Länk till ett godkänt framtida mål, eller länkar som inte kan kontrolleras utan kartläggning |
+| Kannibalisering | En publicerad sida har samma fokusnyckelord eller samma adress. En annan artikel i kön har samma huvudsökord. | Snarlikt sökord på en sida eller i kön |
+| Kategori | Vald kategori finns inte längre | Ingen kategori vald |
+
+**Faktapåståenden.** Meningar med siffror och enheter, priser, regler, myndigheter, bidrag eller studier flaggas. Du måste bocka av att du har kontrollerat dem innan artikeln kan godkännas.
+
+Ett SEO-resultat på 100 % godkänner aldrig en artikel. Godkännandet är alltid ditt eget beslut med två kryssrutor.
+
+**Framtida mål.**
+- Länkar får gå till publicerade sidor, till artiklar du har godkänt och till adresser du uttryckligen markerat som planerade under *Saknade sidor*.
+- Är målet inte publicerat när artikeln publiceras blir länken vanlig text i WordPress, så att inga trasiga länkar publiceras.
+- Har en länkad sida försvunnit sedan godkännandet stoppas publiceringen.
+
+## Publiceringskalender
+
+Under *Publicering* finns, utöver månadskalendern och publiceringsloggen, en översikt med flikarna *Godkända*, *Schemalagda*, *Publicerade*, *Misslyckade*, *Väntar på granskning* och *Utkast*.
+- **Godkända:** välj datum och klockslag (Europe/Stockholm) för varje artikel. En dag kan bara ha en publicering, och studion flyttar aldrig en artikel till en annan dag på egen hand.
+- **Schemalagda:** ändra datum och klockslag, eller avbryt schemaläggningen. Artikeln förblir då godkänd.
+- **Publicerade:** länk till inlägget på klimathemmet.se och WordPress-id.
+- **Misslyckade:** felmeddelandet från publiceringen eller genereringen.
+- Knappen *Schemalägg godkända* lägger fortfarande alla godkända artiklar på var sin dag i köns ordning.
+
+Kategorin för WordPress väljer du i editorns SEO-flik bland sajtens kategorier (kräver en kartläggning under *SEO-karta*).
 
 ## AI-bilder
 

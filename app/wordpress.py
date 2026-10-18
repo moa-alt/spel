@@ -18,6 +18,7 @@ SEO_FALT = {
     "yoast": ("_yoast_wpseo_title", "_yoast_wpseo_metadesc"),
     "rankmath": ("rank_math_title", "rank_math_description"),
 }
+FOKUS_FALT = {"yoast": "_yoast_wpseo_focuskw", "rankmath": "rank_math_focus_keyword"}
 SEO_NAMESPACES = {"yoast/v1": "yoast", "rankmath/v1": "rankmath", "aioseo/v1": "aioseo", "seopress/v1": "seopress"}
 STUDIO_NAMESPACE = "klimathemmet-studio/v1"
 STUDIO_META = "_kh_studio_id"
@@ -25,7 +26,14 @@ ALLA_STATUSAR = "publish,future,draft,pending,private"
 
 
 class WordPressFel(Exception):
-    """Fel med ett meddelande som kan visas för användaren."""
+    """Fel med ett meddelande som kan visas för användaren.
+
+    tillfalligt: felet kan gå över av sig självt (timeout, serverfel, för många anrop) och får försökas igen.
+    """
+
+    def __init__(self, meddelande: str, tillfalligt: bool = False):
+        super().__init__(meddelande)
+        self.tillfalligt = tillfalligt
 
 
 class WordPress:
@@ -53,9 +61,9 @@ class WordPress:
         try:
             r = await self._klient.request(metod, path, **kw)
         except httpx.TimeoutException:
-            raise WordPressFel("WordPress svarade inte i tid.")
+            raise WordPressFel("WordPress svarade inte i tid.", tillfalligt=True)
         except httpx.HTTPError:
-            raise WordPressFel("Kunde inte ansluta till WordPress.")
+            raise WordPressFel("Kunde inte ansluta till WordPress.", tillfalligt=True)
         if r.status_code in tillat:
             return r
         if r.status_code in (401, 403):
@@ -65,7 +73,9 @@ class WordPress:
                 kod = r.json().get("code", "")
             except ValueError:
                 kod = ""
-            raise WordPressFel(f"WordPress svarade med fel {r.status_code}{f' ({kod})' if kod else ''}.")
+            log.warning("WordPress-fel %s %s: %s %s", metod, path, r.status_code, kod)
+            raise WordPressFel(f"WordPress svarade med fel {r.status_code}{f' ({kod})' if kod else ''}.",
+                               tillfalligt=r.status_code >= 500 or r.status_code in (408, 429))
         return r
 
     # ---------- Kontroll ----------
@@ -111,7 +121,7 @@ class WordPress:
     async def hamta_inlagg(self, post_id: int) -> dict:
         return (await self._anrop("GET", f"/wp/v2/posts/{post_id}", params={"context": "edit"})).json()
 
-    async def spara_inlagg(self, artikel: dict, status: str) -> dict:
+    async def spara_inlagg(self, artikel: dict, status: str, datum_gmt: str | None = None) -> dict:
         """Skapar eller uppdaterar artikelns inlägg. Publicerar aldrig samma artikel två gånger.
 
         Ett befintligt inlägg återanvänds om det är markerat med artikelns studio-id eller har
@@ -151,12 +161,18 @@ class WordPress:
             if f"{plugin_namn}/v1" in ns and titel_falt in tillatna_meta and beskr_falt in tillatna_meta:
                 meta[titel_falt] = innehall["meta_titel"]
                 meta[beskr_falt] = innehall["meta_beskrivning"]
+                if FOKUS_FALT[plugin_namn] in tillatna_meta:
+                    meta[FOKUS_FALT[plugin_namn]] = artikel["huvudsokord"]
+        # Länkar till godkända framtida mål som ännu inte publicerats blir vanlig text, så att inga trasiga länkar publiceras.
+        from .kvalitet import ej_publicerade_mal
+
+        utan_lankar = ej_publicerade_mal(artikel)
 
         data = {
             "title": innehall["titel"],
             "slug": innehall["slug"],
             # Med tilläggspluginet laddas CSS:en som en fil; annars bäddas den in i blocket.
-            "content": wordpress_block(innehall, inline_css=not plugin, media=media),
+            "content": wordpress_block(innehall, inline_css=not plugin, media=media, utan_lankar=utan_lankar),
             "excerpt": innehall["meta_beskrivning"],
             "status": status,
         }
@@ -165,6 +181,11 @@ class WordPress:
         if 1 in media:
             # Huvudbilden blir också inläggets utvalda bild.
             data["featured_media"] = media[1]["id"]
+        if innehall.get("kategori_id") is not None:
+            data["categories"] = [int(innehall["kategori_id"])]
+        if datum_gmt:
+            # Publiceringsdatum i UTC enligt kalendern (WordPress visar det i sajtens tidszon).
+            data["date_gmt"] = datum_gmt
         if befintlig:
             post = (await self._anrop("POST", f"/wp/v2/posts/{befintlig['id']}", json=data)).json()
         else:

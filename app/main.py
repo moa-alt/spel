@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 
-from . import auth, bilder, config, db, jobb, lankforslag, publicering, saknade, sajtkarta, seo_ai
+from . import auth, bilder, config, db, jobb, kvalitet, lankforslag, publicering, saknade, sajtkarta, seo_ai
 from .planering import MAX_SEKUNDARA, CsvFel, liknande, normalisera_sokord, tolka_csv
 from .publicering import PubliceringsFel
 from .render import wordpress_block
@@ -137,6 +137,7 @@ class Article(BaseModel):
     sekundara_sokord: list[str] = Field(default_factory=list)
     sokintention: dict | None = None
     internlankar: list[dict] = Field(default_factory=list)
+    kategori_id: int | None = None
     demo: bool = False
 
 
@@ -258,6 +259,8 @@ def hamta_artikel(artikel_id: int):
     artikel["lankplan"] = seo_ai.lankplan(artikel_id)
     artikel["lankkontroll"] = seo_ai.lankkontroll((artikel["innehall"] or {}).get("html", ""))
     artikel["inkommande_forslag"] = lankforslag.for_artikel(artikel_id)
+    artikel["kvalitet"] = kvalitet.kontrollera(artikel)
+    artikel["lankklasser"] = kvalitet.lankar(artikel)
     artikel["bildinfo"] = bilder.bildinfo(artikel["innehall"])
     artikel["bilder_pagar"] = bilder.pagar(artikel_id)
     return artikel
@@ -352,6 +355,19 @@ def skicka_till_granskning(artikel_id: int):
 
 class Godkannande(BaseModel):
     bekraftad: bool = False
+    # Krävs när kvalitetskontrollen har flaggat faktapåståenden.
+    fakta_verifierade: bool = False
+
+
+@app.get("/api/artiklar/{artikel_id}/kvalitet")
+def kvalitetskontroll(artikel_id: int):
+    return kvalitet.kontrollera(_hamta_eller_404(artikel_id))
+
+
+@app.get("/api/wordpress/kategorier")
+def wordpress_kategorier():
+    """Kategorier från den senaste kartläggningen. Ingenting hämtas eller ändras på sajten."""
+    return {"kategorier": kvalitet.wp_kategorier()}
 
 
 @app.post("/api/artiklar/{artikel_id}/godkann")
@@ -362,6 +378,13 @@ def godkann(artikel_id: int, body: Godkannande):
     artikel = _hamta_eller_404(artikel_id)
     if bilder.pagar(artikel_id):
         raise HTTPException(409, "Vänta tills bildgenereringen är klar innan du godkänner artikeln.")
+    if artikel["status"] == "granskas":
+        # Kvalitetskontrollen: kritiska fel blockerar, och flaggade faktapåståenden måste ha granskats av dig.
+        resultat = kvalitet.kontrollera(artikel)
+        if resultat["kritiska"]:
+            raise HTTPException(409, f"Artikeln kan inte godkännas: {kvalitet.sammanfattning(resultat)}")
+        if resultat["fakta"] and not body.fakta_verifierade:
+            raise HTTPException(400, f"Bekräfta att du har kontrollerat de {len(resultat['fakta'])} flaggade faktapåståendena.")
     # Artikelns färdiga bilder godkänns tillsammans med texten och genereras då aldrig om automatiskt.
     if artikel["status"] == "granskas" and db.andra_innehall(artikel_id, bilder.markera_godkanda, ("granskas",)):
         artikel = db.hamta(artikel_id)
@@ -508,6 +531,7 @@ class Schemalaggning(BaseModel):
     startdatum: date
     klockslag: time = publicering.STANDARD_KLOCKSLAG
     artikel_ids: list[int] | None = None
+    exakt: bool = False
 
 
 class Flytt(BaseModel):
@@ -530,6 +554,10 @@ def publiceringsoversikt():
         "kalender": publicering.kalender(),
         "godkanda": [{"id": a["id"], "huvudsokord": a["huvudsokord"], "titel": a["titel"]}
                      for a in artiklar if a["status"] == "godkand"],
+        # Alla artiklar med status, för översikten i kalendern.
+        "artiklar": [{k: a[k] for k in ("id", "huvudsokord", "titel", "status", "publiceras_at", "wp_lank", "wp_post_id", "fel",
+                                        "godkand_at", "uppdaterad")}
+                     for a in artiklar if a["status"] in ("utkast", "granskas", "godkand", "schemalagd", "publicerad", "fel")],
         "logg": db.publiceringslogg(),
     }
 
@@ -542,7 +570,7 @@ def schemalagg(body: Schemalaggning):
     if not ids:
         raise HTTPException(409, "Det finns inga godkända artiklar att schemalägga.")
     try:
-        return {"schemalagda": publicering.schemalagg(ids, body.startdatum, body.klockslag)}
+        return {"schemalagda": publicering.schemalagg(ids, body.startdatum, body.klockslag, exakt=body.exakt)}
     except PubliceringsFel as e:
         raise HTTPException(409, str(e))
 

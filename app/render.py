@@ -39,19 +39,27 @@ def figure_html(bild: dict, media: dict | None = None) -> str:
     return fig + "</figure>"
 
 
-def article_inner_html(article: dict, media: dict[int, dict] | None = None) -> str:
+_LANK = re.compile(r'<a\b[^>]*href="([^"]*)"[^>]*>(.*?)</a>', re.S | re.I)
+
+
+def article_inner_html(article: dict, media: dict[int, dict] | None = None, utan_lankar: set[str] | None = None) -> str:
+    """utan_lankar: adresser vars länkar blir vanlig text (sidor som ännu inte publicerats)."""
     bilder = {b["id"]: b for b in article.get("bilder", [])}
     media = media or {}
-    return BILD_MARKOR.sub(
+    body = BILD_MARKOR.sub(
         lambda m: figure_html(bilder.get(int(m.group(1)), {}), media.get(int(m.group(1)))), article["html"])
+    if utan_lankar:
+        body = _LANK.sub(lambda m: m.group(2) if html.unescape(m.group(1)) in utan_lankar else m.group(0), body)
+    return body
 
 
-def wordpress_block(article: dict, inline_css: bool = True, media: dict[int, dict] | None = None) -> str:
+def wordpress_block(article: dict, inline_css: bool = True, media: dict[int, dict] | None = None,
+                    utan_lankar: set[str] | None = None) -> str:
     """Artikeln som ett Anpassad HTML-block. Utan inline_css förutsätts tilläggspluginet ladda CSS:en."""
     stil = f"<style>\n{ARTIKEL_CSS.read_text(encoding='utf-8').strip()}\n</style>\n" if inline_css else ""
     return (
         "<!-- wp:html -->\n"
         f"{stil}"
-        f'<div class="kh-artikel">\n{article_inner_html(article, media)}\n</div>\n'
+        f'<div class="kh-artikel">\n{article_inner_html(article, media, utan_lankar)}\n</div>\n'
         "<!-- /wp:html -->"
     )

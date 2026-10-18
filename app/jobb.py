@@ -70,6 +70,9 @@ async def _kor(artikel_id: int) -> None:
             # En artikel som skapats för en saknad adress måste publiceras just där.
             if artikel.get("mal_slug"):
                 resultat["slug"] = artikel["mal_slug"]
+            # Vald kategori följer med när texten skrivs om.
+            if (artikel["innehall"] or {}).get("kategori_id") is not None:
+                resultat["kategori_id"] = artikel["innehall"]["kategori_id"]
             # Färdiga bilder behålls; ingen bild genereras om automatiskt när texten skrivs om.
             resultat["bilder"] = bilder.behall_vid_omgenerering((artikel["innehall"] or {}).get("bilder", []), resultat["bilder"])
             resultat["html"], resultat["internlankar"] = seo_ai.kontrollera_lankar(

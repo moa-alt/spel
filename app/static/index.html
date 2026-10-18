@@ -280,7 +280,9 @@
     </section>
 
     <section class="card">
-      <h2 class="card-title">Kommande och senaste</h2>
+      <h2 class="card-title">Artiklar och publiceringar</h2>
+      <p class="muted pub-text">Välj datum och klockslag (Europe/Stockholm) för varje godkänd artikel, flytta eller avbryt en schemaläggning. Bara artiklar som du har godkänt kan schemaläggas.</p>
+      <div class="filters" id="pubTabs" role="tablist"></div>
       <ul class="pub-list" id="pubList"></ul>
     </section>
 
@@ -321,6 +323,12 @@
           <li data-step="3">Optimerar metadata</li>
         </ol>
       </form>
+
+      <section class="card" id="qualityCard" hidden>
+        <h2 class="card-title">Kvalitetskontroll <span class="score" id="qualityScore"></span></h2>
+        <p class="muted q-intro" id="qualityIntro"></p>
+        <ul class="checks" id="quality"></ul>
+      </section>
 
       <section class="card" id="checksCard" hidden>
         <h2 class="card-title">SEO-kontroll <span class="score" id="score"></span></h2>
@@ -415,6 +423,11 @@
                 <span class="label">URL-slug</span>
                 <div class="slug-input"><span id="slugPrefix">klimathemmet.se/</span><input id="slug" type="text"></div>
                 <small class="muted slug-lock" id="slugLock" hidden>Adressen är låst eftersom befintliga artiklar redan länkar hit.</small>
+              </label>
+              <label class="field">
+                <span class="label">Kategori i WordPress</span>
+                <select id="kategori"><option value="">Ingen vald (WordPress standardkategori)</option></select>
+                <small class="muted" id="kategoriHint"></small>
               </label>
               <div class="field">
                 <span class="label">Sökord</span>
@@ -562,6 +575,15 @@
       <h2>Godkänn artikeln</h2>
       <p class="muted">Godkännandet gäller exakt den här versionen. Ändras artikeln efteråt måste den granskas och godkännas igen innan den kan schemaläggas.</p>
       <dl class="approve-summary" id="approveSummary"></dl>
+      <div class="approve-block" id="approveBlock" hidden></div>
+      <div class="approve-fakta" id="approveFakta" hidden>
+        <p><strong>Faktapåståenden att kontrollera</strong> <span class="muted">Siffror, regler, myndigheter och studier som AI:n kan ha fel om.</span></p>
+        <ul id="approveFaktaList"></ul>
+        <label class="confirm-check">
+          <input type="checkbox" id="approveFaktaOk">
+          <span>Jag har kontrollerat de flaggade faktapåståendena.</span>
+        </label>
+      </div>
       <label class="confirm-check">
         <input type="checkbox" id="approveConfirm">
         <span>Jag har läst hela artikeln och kontrollerat text, bilder, alt-texter och SEO-metadata.</span>

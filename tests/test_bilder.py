@@ -316,7 +316,7 @@ def test_godkannande_av_artikeln_godkanner_bilderna(klient, tjanst):
     aid = artikel_med_text(klient)
     bestall(klient, aid, [1, 2])
     bilder_klara(aid)
-    assert klient.post(f"/api/artiklar/{aid}/godkann", json={"bekraftad": True}).status_code == 200
+    assert klient.post(f"/api/artiklar/{aid}/godkann", json={"bekraftad": True, "fakta_verifierade": True}).status_code == 200
     a = db.hamta(aid)
     assert [b.get("godkand", False) for b in a["innehall"]["bilder"]] == [True, True, False, False]
     assert a["godkand_hash"] == db.innehall_hash(a["innehall"])
@@ -338,7 +338,7 @@ def test_textgenerering_och_godkannande_vantar_pa_bilder(klient, tjanst, monkeyp
     aid = artikel_med_text(klient)
     bestall(klient, aid, [1])
     assert klient.post(f"/api/artiklar/{aid}/generera").status_code == 409
-    assert klient.post(f"/api/artiklar/{aid}/godkann", json={"bekraftad": True}).status_code == 409
+    assert klient.post(f"/api/artiklar/{aid}/godkann", json={"bekraftad": True, "fakta_verifierade": True}).status_code == 409
     assert bestall(klient, aid, [2]).status_code == 409
     bilder_klara(aid)
 
@@ -372,7 +372,7 @@ def test_publicering_laddar_upp_bilderna_och_satter_utvald_bild(klient, tjanst, 
     bilder_klara(aid)
     # Inget har skickats till WordPress under bildgenereringen.
     assert wp.uppladdningar == 0
-    klient.post(f"/api/artiklar/{aid}/godkann", json={"bekraftad": True})
+    klient.post(f"/api/artiklar/{aid}/godkann", json={"bekraftad": True, "fakta_verifierade": True})
     dag = imorgon()
     klient.post("/api/publicering/schemalagg", json={"startdatum": dag.isoformat()})
     kor(kl(dag), wp)

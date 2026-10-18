@@ -75,6 +75,7 @@ const save = debounce(async () => {
     const res = await api(`/api/artiklar/${id}/innehall`, state.article, "PUT");
     if (state.current?.id !== id) return;
     $("#saveState").textContent = "Sparat";
+    hamtaKvalitet();
     if (res.status !== state.current.status) {
       if (state.current.status === "godkand") toast("Godkännandet upphävdes eftersom artikeln ändrades");
       await openArticle(id, { keepView: true });
@@ -209,6 +210,8 @@ function setArticle(article) {
   $("#slug").readOnly = last;
   $("#slugLock").hidden = !last;
   $("#htmlEditor").value = article.html;
+  renderKategori();
+  renderKvalitet();
   renderKeywords();
   renderIntent();
   renderLinks();
@@ -256,6 +259,51 @@ function renderKeywords() {
     `<span class="chip main">${esc(a.huvudsokord)}</span>` +
     (a.sekundara_sokord || []).map((s) => `<span class="chip">${esc(s)}</span>`).join("");
 }
+
+/* ---------- Kvalitetskontroll (servern) ---------- */
+function renderKvalitet() {
+  const k = state.current?.kvalitet;
+  $("#qualityCard").hidden = !k || !state.article;
+  if (!k) return;
+  const sc = $("#qualityScore");
+  sc.textContent = k.kritiska.length ? `${k.kritiska.length} kritiska` : "Inga kritiska fel";
+  sc.className = "score " + (k.kritiska.length ? "bad" : "ok");
+  $("#qualityIntro").textContent = (k.kritiska.length ? "Kritiska fel blockerar godkännande och publicering. " : "Inget blockerar. ")
+    + "Varningar bedömer du själv." + (k.fakta.length ? ` ${k.fakta.length} faktapåståenden ska kontrolleras när du godkänner.` : "")
+    + " Ett bra resultat godkänner aldrig artikeln åt dig.";
+  $("#quality").innerHTML = [
+    ...k.kritiska.map((p) => `<li class="bad">${esc(p.text)}</li>`),
+    ...k.varningar.map((p) => `<li class="warn">${esc(p.text)}</li>`),
+    ...k.ok.map((t) => `<li>${esc(t)}</li>`),
+  ].join("");
+}
+const hamtaKvalitet = debounce(async () => {
+  const id = state.current?.id;
+  if (!id) return;
+  try {
+    const k = await api(`/api/artiklar/${id}/kvalitet`);
+    if (state.current?.id === id) { state.current.kvalitet = k; renderKvalitet(); }
+  } catch { /* visas igen vid nästa sparning */ }
+}, 400);
+
+const kategorier = { lista: null };
+async function renderKategori() {
+  if (!kategorier.lista) {
+    try { kategorier.lista = (await api("/api/wordpress/kategorier")).kategorier; } catch { kategorier.lista = []; }
+  }
+  const sel = $("#kategori");
+  sel.innerHTML = `<option value="">Ingen vald (WordPress standardkategori)</option>` +
+    kategorier.lista.map((k) => `<option value="${k.id}">${esc(k.namn)}</option>`).join("");
+  const v = state.article?.kategori_id;
+  if (v != null && !kategorier.lista.some((k) => k.id === v)) sel.insertAdjacentHTML("beforeend", `<option value="${v}">Okänd kategori (${v})</option>`);
+  sel.value = v == null ? "" : String(v);
+  sel.disabled = !REDIGERBAR.includes(state.current?.status);
+  $("#kategoriHint").textContent = kategorier.lista.length ? "" : "Kartlägg sajten under SEO-karta för att kunna välja bland sajtens kategorier.";
+}
+$("#kategori").addEventListener("change", (e) => {
+  state.article.kategori_id = e.target.value ? Number(e.target.value) : null;
+  save();
+});
 
 /* ---------- Förhandsgranskning ---------- */
 function placeholderFigure(b) {
@@ -1043,13 +1091,32 @@ $("#approveBtn").addEventListener("click", () => {
   ];
   $("#approveSummary").innerHTML = rader.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
   $("#approveConfirm").checked = false;
+  $("#approveFaktaOk").checked = false;
   $("#approveOk").disabled = true;
-  $("#approveDialog").showModal();
+  visaGodkannande();
 });
-$("#approveConfirm").addEventListener("change", (e) => { $("#approveOk").disabled = !e.target.checked; });
+// Hämtar en färsk kvalitetskontroll: kritiska fel blockerar, faktapåståenden måste bockas av.
+async function visaGodkannande() {
+  let k;
+  try { k = await api(`/api/artiklar/${state.current.id}/kvalitet`); } catch (err) { toast(err.message); return; }
+  state.current.kvalitet = k;
+  renderKvalitet();
+  $("#approveBlock").hidden = !k.kritiska.length;
+  $("#approveBlock").innerHTML = k.kritiska.length
+    ? `<p><strong>Artikeln kan inte godkännas ännu.</strong> Åtgärda först:</p><ul>${k.kritiska.map((p) => `<li>${esc(p.text)}</li>`).join("")}</ul>` : "";
+  $("#approveFakta").hidden = !k.fakta.length;
+  $("#approveFaktaList").innerHTML = k.fakta.map((f) => `<li>${esc(f)}</li>`).join("");
+  $("#approveConfirm").disabled = !!k.kritiska.length;
+  $("#approveDialog").showModal();
+}
+function kanGodkanna() {
+  const k = state.current?.kvalitet;
+  return !!k && !k.kritiska.length && $("#approveConfirm").checked && (!k.fakta.length || $("#approveFaktaOk").checked);
+}
+["#approveConfirm", "#approveFaktaOk"].forEach((id) => $(id).addEventListener("change", () => { $("#approveOk").disabled = !kanGodkanna(); }));
 $("#approveDialog").addEventListener("close", () => {
-  if ($("#approveDialog").returnValue === "ok" && $("#approveConfirm").checked) {
-    reviewAction("godkann", { bekraftad: true }, "Artikeln är godkänd");
+  if ($("#approveDialog").returnValue === "ok" && kanGodkanna()) {
+    reviewAction("godkann", { bekraftad: true, fakta_verifierade: $("#approveFaktaOk").checked }, "Artikeln är godkänd");
   }
 });
 $("#revokeBtn").addEventListener("click", () => reviewAction("aterkalla", {}, "Godkännandet är återkallat"));
@@ -1140,24 +1207,76 @@ function renderCalendar() {
   $("#calendar").innerHTML = celler.join("");
 }
 
-function renderPubList() {
-  const lista = [...pub.data.kalender].sort((a, b) => a.datum.localeCompare(b.datum));
-  const kommande = lista.filter((p) => p.datum >= pub.data.idag || ["planerad", "fel", "missad"].includes(p.status));
-  $("#pubList").innerHTML = kommande.length ? kommande.map((p) => `
-    <li class="pub-item">
-      <div>
-        <div class="kw">${esc(p.titel || p.huvudsokord)}</div>
-        <div class="when">${formatDag(p.tid_utc)} · ${statusBadgeSlot(p.status)}</div>
-        ${p.fel && p.status !== "planerad" ? `<div class="err">${esc(p.fel)}</div>` : ""}
-        ${p.fel && p.status === "planerad" ? `<div class="err">Senaste försöket misslyckades: ${esc(p.fel)}</div>` : ""}
-        ${p.wp_lank ? `<a href="${esc(p.wp_lank)}" target="_blank" rel="noopener">Visa på sajten</a>` : ""}
-      </div>
-      ${p.status === "planerad" ? `<div class="pub-item-actions">
-        <input type="date" value="${p.datum}" min="${pub.data.idag}" data-flytta="${p.id}" aria-label="Nytt datum för ${esc(p.huvudsokord)}">
-        <button class="btn btn-ghost btn-sm btn-danger" type="button" data-avboka="${p.artikel_id}">Ta bort</button>
-      </div>` : ""}
-    </li>`).join("") : `<li class="pub-empty">Inget är schemalagt.</li>`;
+// Flikar i översikten: varje artikel hamnar i precis en flik.
+const PUB_FLIKAR = [
+  ["att_planera", "Godkända"], ["schemalagd", "Schemalagda"], ["publicerad", "Publicerade"],
+  ["fel", "Misslyckade"], ["granskas", "Väntar på granskning"], ["utkast", "Utkast"],
+];
+function pubFlik(a, slot) {
+  if (a.status === "godkand") return slot && ["fel", "missad"].includes(slot.status) ? "fel" : "att_planera";
+  if (a.status === "fel") return "fel";
+  return a.status;
 }
+function senasteSlot(id) {
+  return pub.data.kalender.filter((p) => p.artikel_id === id).sort((x, y) => (y.id - x.id))[0];
+}
+function tidInput(utc) {
+  // Lokal tid i Stockholm som "ÅÅÅÅ-MM-DD" och "TT:MM".
+  const d = new Date(utc);
+  const del = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(d);
+  const v = Object.fromEntries(del.map((p) => [p.type, p.value]));
+  return [`${v.year}-${v.month}-${v.day}`, `${v.hour}:${v.minute}`];
+}
+function renderPubList() {
+  const artiklar = pub.data.artiklar.map((a) => ({ a, slot: senasteSlot(a.id) })).map((x) => ({ ...x, flik: pubFlik(x.a, x.slot) }));
+  const antal = Object.fromEntries(PUB_FLIKAR.map(([k]) => [k, artiklar.filter((x) => x.flik === k).length]));
+  if (!pub.flik || (!antal[pub.flik] && pub.flikAuto)) {
+    pub.flik = PUB_FLIKAR.find(([k]) => antal[k])?.[0] || "att_planera";
+    pub.flikAuto = true;
+  }
+  $("#pubTabs").innerHTML = PUB_FLIKAR.map(([k, namn]) =>
+    `<button type="button" class="filter${pub.flik === k ? " active" : ""}" data-pubflik="${k}">${namn}<b>${antal[k]}</b></button>`).join("");
+  const imorgon = new Date(pub.data.idag); imorgon.setDate(imorgon.getDate() + 1);
+  const forval = imorgon.toISOString().slice(0, 10);
+  const rader = artiklar.filter((x) => x.flik === pub.flik).sort((x, y) => (x.a.publiceras_at || x.a.uppdaterad).localeCompare(y.a.publiceras_at || y.a.uppdaterad));
+  $("#pubList").innerHTML = rader.length ? rader.map(({ a, slot }) => {
+    const titel = esc(a.titel || a.huvudsokord);
+    let info = "", atgard = "";
+    if (a.status === "godkand") {
+      info = `Godkänd ${formatTid(a.godkand_at)}`;
+      if (slot && ["fel", "missad"].includes(slot.status)) info += ` · <span class="err">${esc(slot.fel || SLOT_NAMN[slot.status])}</span>`;
+      atgard = `<div class="pub-item-actions" data-id="${a.id}">
+        <input type="date" value="${forval}" min="${pub.data.idag}" data-f="datum" aria-label="Datum för ${titel}">
+        <input type="time" value="${$("#startTime").value || "07:00"}" data-f="tid" aria-label="Klockslag för ${titel}">
+        <button class="btn btn-primary btn-sm" type="button" data-pub="schemalagg">Schemalägg</button>
+      </div>`;
+    } else if (a.status === "schemalagd" && slot) {
+      const [datum, tid] = tidInput(slot.tid_utc);
+      info = `Publiceras ${formatDag(slot.tid_utc)} · ${statusBadgeSlot(slot.status)}`;
+      if (slot.fel) info += `<div class="err">Senaste försöket misslyckades: ${esc(slot.fel)}</div>`;
+      atgard = `<div class="pub-item-actions" data-id="${a.id}" data-slot="${slot.id}">
+        <input type="date" value="${datum}" min="${pub.data.idag}" data-f="datum" aria-label="Nytt datum för ${titel}">
+        <input type="time" value="${tid}" data-f="tid" aria-label="Nytt klockslag för ${titel}">
+        <button class="btn btn-ghost btn-sm" type="button" data-pub="flytta">Flytta</button>
+        <button class="btn btn-ghost btn-sm btn-danger" type="button" data-pub="avboka">Avbryt schemaläggning</button>
+      </div>`;
+    } else if (a.status === "publicerad") {
+      info = `Publicerad ${slot ? formatDag(slot.tid_utc) : ""}${a.wp_post_id ? ` · WordPress-id ${a.wp_post_id}` : ""}`;
+      atgard = a.wp_lank ? `<a href="${esc(a.wp_lank)}" target="_blank" rel="noopener">${esc(a.wp_lank.replace(/^https?:\/\//, ""))}</a>` : "";
+    } else {
+      info = a.status === "fel" ? `<span class="err">${esc(a.fel || "Fel")}</span>` : STATUS_NAMN[a.status] || a.status;
+      atgard = `<div class="pub-item-actions"><button class="btn btn-ghost btn-sm" type="button" data-pub="oppna" data-id="${a.id}">Öppna och granska</button></div>`;
+    }
+    return `<li class="pub-item"><div><div class="kw">${titel}</div><div class="when">${info}</div></div>${atgard}</li>`;
+  }).join("") : `<li class="pub-empty">Inga artiklar här.</li>`;
+}
+$("#pubTabs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pubflik]");
+  if (!b) return;
+  pub.flik = b.dataset.pubflik;
+  pub.flikAuto = false;
+  renderPubList();
+});
 function statusBadgeSlot(s) {
   const klass = { planerad: "schemalagd", publicerar: "genereras", publicerad: "publicerad", utkast: "godkand", simulerad: "godkand", missad: "fel", fel: "fel" }[s];
   return `<span class="status-badge s-${klass}">${SLOT_NAMN[s] || s}</span>`;
@@ -1186,19 +1305,29 @@ $("#pauseToggle").addEventListener("change", async (e) => {
   loadPub();
 });
 
-$("#pubList").addEventListener("change", async (e) => {
-  const id = e.target.dataset.flytta;
-  if (!id) return;
-  try {
-    const res = await api(`/api/publicering/${id}/flytta`, { datum: e.target.value });
-    toast(`Flyttad till ${formatDag(res.lokal_tid)}`);
-  } catch (err) { toast(err.message); }
-  loadPub();
-});
 $("#pubList").addEventListener("click", async (e) => {
-  const id = e.target.dataset.avboka;
-  if (!id || !confirm("Ta bort artikeln ur kalendern? Den förblir godkänd och kan schemaläggas igen.")) return;
-  try { await api(`/api/artiklar/${id}/avboka`, {}); toast("Borttagen ur kalendern"); } catch (err) { toast(err.message); }
+  const b = e.target.closest("[data-pub]");
+  if (!b) return;
+  if (b.dataset.pub === "oppna") { openArticle(Number(b.dataset.id)); return; }
+  const rad = b.closest(".pub-item-actions");
+  const datum = rad.querySelector("[data-f=datum]")?.value, tid = rad.querySelector("[data-f=tid]")?.value;
+  try {
+    if (b.dataset.pub === "schemalagg") {
+      if (!datum || !tid) { toast("Välj datum och klockslag"); return; }
+      if (!confirm(`Publicera ${datum} kl. ${tid} (svensk tid)?`)) return;
+      await api("/api/publicering/schemalagg", { startdatum: datum, klockslag: tid, artikel_ids: [Number(rad.dataset.id)], exakt: true });
+      toast(`Schemalagd ${datum} kl. ${tid}`);
+      Object.assign(pub, { flik: "schemalagd", flikAuto: false });
+    } else if (b.dataset.pub === "flytta") {
+      const r = await api(`/api/publicering/${rad.dataset.slot}/flytta`, { datum, klockslag: tid });
+      toast(`Flyttad till ${formatDag(r.lokal_tid)}`);
+    } else if (b.dataset.pub === "avboka") {
+      if (!confirm("Avbryt schemaläggningen? Artikeln förblir godkänd och kan schemaläggas igen.")) return;
+      await api(`/api/artiklar/${rad.dataset.id}/avboka`, {});
+      toast("Schemaläggningen är avbruten");
+      Object.assign(pub, { flik: "att_planera", flikAuto: false });
+    }
+  } catch (err) { toast(err.message); }
   loadPub();
 });
 

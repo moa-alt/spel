@@ -137,9 +137,15 @@ def test_granskningsflode(server, browser, enhet):
 
     # Godkännande kräver att kryssrutan bockas i.
     knapp.click()
+    page.locator("#approveDialog[open]").wait_for()
     assert page.locator("#approveOk").is_disabled()
+    # Demotexten innehåller priser och ROT-avdrag: faktapåståendena måste bockas av separat.
+    page.locator("#approveFakta:not([hidden])").wait_for()
+    assert "kr" in page.text_content("#approveFaktaList")
     _skarmbild(page, f"{enhet}-3-godkann-dialog")
     page.locator("#approveConfirm").check()
+    assert page.locator("#approveOk").is_disabled()
+    page.locator("#approveFaktaOk").check()
     page.locator("#approveOk").click()
     page.locator("#statusBadge.s-godkand").wait_for()
 
@@ -191,7 +197,9 @@ def test_inloggning_och_publicering(skyddad_server, browser, enhet):
     rad.locator("[data-act=open]").click()
     page.locator("#statusBadge.s-granskas").wait_for()
     page.click("#approveBtn")
+    page.locator("#approveDialog[open]").wait_for()
     page.locator("#approveConfirm").check()
+    page.locator("#approveFaktaOk").check()
     page.locator("#approveOk").click()
     page.locator("#statusBadge.s-godkand").wait_for()
 
@@ -487,5 +495,61 @@ def test_bildfliken(bild_server, browser, enhet, tmp_path):
     page.set_input_files("#imgFile", str(fil))
     page.locator("#images .img-card").nth(1).locator(".tag", has_text="Egen bild").wait_for()
     assert "1200×800" in page.locator("#images .img-card").nth(1).locator(".img-file").text_content()
+    assert fel == []
+    ctx.close()
+
+
+@pytest.mark.parametrize("enhet", ["iphone", "dator"])
+def test_publiceringskalender(server, browser, enhet):
+    ctx = browser.new_context(**ENHETER[enhet])
+    page = ctx.new_page()
+    fel = []
+    page.on("pageerror", lambda e: fel.append(str(e)))
+    page.on("dialog", lambda d: d.accept())
+    page.goto(server)
+    sokord = f"luftvärmepump {enhet}"
+    page.fill("#qHuvud", sokord)
+    page.click("#addForm button[type=submit]")
+    rad = page.locator(".q-item").filter(has=page.locator(".q-kw", has_text=sokord))
+    rad.locator("[data-act=generate]").click()
+    rad.locator(".s-granskas").wait_for()
+    rad.locator("[data-act=open]").click()
+    page.locator("#statusBadge.s-granskas").wait_for()
+    # Kvalitetskontrollen syns i editorn och blockerar inte demotexten.
+    page.locator("#qualityCard:not([hidden])").wait_for()
+    assert "Inga kritiska fel" in page.text_content("#qualityScore")
+    page.click("#approveBtn")
+    page.locator("#approveDialog[open]").wait_for()
+    page.locator("#approveConfirm").check()
+    page.locator("#approveFaktaOk").check()
+    page.locator("#approveOk").click()
+    page.locator("#statusBadge.s-godkand").wait_for()
+
+    if page.locator('.view-btn[data-view="pub"]').is_hidden():
+        page.click("#backBtn")
+    page.click('.view-btn[data-view="pub"]')
+    page.locator('#pubTabs [data-pubflik="att_planera"].active').wait_for()
+    post = page.locator(".pub-item", has_text=sokord)
+    post.locator("[data-f=datum]").fill("2027-06-15")
+    post.locator("[data-f=tid]").fill("14:30")
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-15-kalender-godkand")
+    post.locator("[data-pub=schemalagg]").click()
+    page.locator('#pubTabs [data-pubflik="schemalagd"].active').wait_for()
+    post = page.locator(".pub-item", has_text=sokord)
+    assert post.locator("[data-f=datum]").input_value() == "2027-06-15"
+    assert post.locator("[data-f=tid]").input_value() == "14:30"
+    # Flytta till ett annat datum och klockslag.
+    post.locator("[data-f=datum]").fill("2027-06-20")
+    post.locator("[data-f=tid]").fill("08:05")
+    post.locator("[data-pub=flytta]").click()
+    page.locator(".pub-item", has_text=sokord).locator("[data-f=tid][value='08:05']").wait_for()
+    assert page.locator(".pub-item", has_text=sokord).locator("[data-f=datum]").input_value() == "2027-06-20"
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-16-kalender-schemalagd")
+    # Avbryt schemaläggningen: artikeln är kvar som godkänd.
+    page.locator(".pub-item", has_text=sokord).locator("[data-pub=avboka]").click()
+    page.locator('#pubTabs [data-pubflik="att_planera"].active').wait_for()
+    page.locator(".pub-item", has_text=sokord).locator("[data-pub=schemalagg]").wait_for()
     assert fel == []
     ctx.close()
