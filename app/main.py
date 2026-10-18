@@ -41,6 +41,11 @@ async def lifespan(_app: FastAPI):
     lankforslag.init()
     saknade.init()
     bilder.init()
+    s = config.settings
+    # Bara ja/nej om nyckeln; värdet loggas aldrig.
+    logging.getLogger("studio").info(
+        "Bilder: %s (modell %s, kvalitet %s, nyckel %s)%s", s.bildtjanst, s.bild_modell, s.bild_kvalitet,
+        "finns" if s.openai_api_key else "saknas", f" – {bilder.saknas_orsak()}" if bilder.saknas_orsak() else "")
     uppgift = asyncio.create_task(publicering.schemalaggare()) if config.settings.schemalaggare else None
     yield
     if uppgift:
@@ -156,7 +161,7 @@ def _med_extra(artikel: dict, lika: dict[int, list[dict]]) -> dict:
 
 @app.get("/api/status")
 def status():
-    return config.settings.status() | {"bildkostnad": bilder.kostnad(1)}
+    return config.settings.status() | {"bildkostnad": bilder.kostnad(1), "bilder_orsak": bilder.saknas_orsak()}
 
 
 @app.post("/api/exportera")
@@ -422,6 +427,12 @@ class Bildgodkannande(BaseModel):
 @app.get("/api/bilder/kostnad")
 def bildkostnad(antal: int = bilder.ANTAL):
     return bilder.kostnad(max(1, min(antal, bilder.ANTAL)))
+
+
+@app.post("/api/bilder/kontrollera")
+async def kontrollera_bildtjanst():
+    """Kontrollerar nyckel och modell hos bildtjänsten. Skapar ingen bild och kostar ingenting."""
+    return await bilder.kontrollera()
 
 
 @app.post("/api/artiklar/{artikel_id}/bilder/generera", status_code=202)

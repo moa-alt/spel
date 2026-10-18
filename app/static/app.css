@@ -340,6 +340,7 @@ body[data-view="editor"] { --bottom-h: 132px; }
 .img-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
 .img-head .panel-intro { margin: 0; max-width: 62ch; }
 .img-head .btn { flex: none; }
+.img-tjanst { display: flex; gap: 10px 14px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; font-size: 13px; }
 #imgNotice { border: 0; border-radius: var(--radius-sm); margin-bottom: 14px; }
 .img-card { display: flex; flex-direction: column; }
 .img-card.busy .img-thumb img { opacity: .45; }

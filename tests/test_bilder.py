@@ -507,3 +507,93 @@ def test_bilderna_kraver_inloggning(klient, tjanst, monkeypatch):
     ny_installning(monkeypatch, STUDIO_USER="moa", STUDIO_PASSWORD="ett-langt-losenord", STUDIO_SESSION_SECRET="x" * 40)
     assert klient.get(url).status_code == 401
     assert klient.post(f"/api/artiklar/{aid}/bilder/generera", json={"bild_ids": [2], "bekraftad": True}).status_code == 401
+
+
+# ---------- Aktivering av riktiga bilder ----------
+
+def test_gratis_kontroll_av_nyckel_och_modell_skapar_ingen_bild(klient, monkeypatch):
+    from app import bilder
+
+    r = klient.post("/api/bilder/kontrollera").json()
+    assert r["ok"] is False and ".env" in r["meddelande"] and r["nyckel"] is False
+    ny_installning(monkeypatch, OPENAI_API_KEY="sk-proj-hemlig-nyckel-456")
+    anrop = []
+    svar = []
+
+    def hantera(request):
+        anrop.append(request)
+        return svar.pop(0)
+    monkeypatch.setattr(bilder.OpenAIBilder, "transport", httpx.MockTransport(hantera))
+    svar.append(httpx.Response(200, json={"id": "gpt-image-2", "object": "model"}))
+    r = klient.post("/api/bilder/kontrollera")
+    assert r.json()["ok"] is True and "Ingen bild skapades" in r.json()["meddelande"]
+    assert anrop[0].method == "GET" and anrop[0].url == "https://api.openai.com/v1/models/gpt-image-2"
+    for kod, data, text in [(401, {"error": {"code": "invalid_api_key"}}, "godkände inte"),
+                            (404, {"error": {"code": "model_not_found"}}, "STUDIO_BILD_MODELL"),
+                            (403, {}, "behörighet")]:
+        svar.append(httpx.Response(kod, json=data))
+        r = klient.post("/api/bilder/kontrollera")
+        assert r.json()["ok"] is False and text in r.json()["meddelande"]
+        assert "sk-proj-hemlig" not in r.text
+    # Bara GET-anrop: ingen bild har beställts.
+    assert all(a.method == "GET" and "/images/" not in str(a.url) for a in anrop)
+
+
+def test_tydlig_orsak_nar_bilder_inte_ar_aktiva(klient, monkeypatch):
+    assert "OPENAI_API_KEY saknas" in klient.get("/api/status").json()["bilder_orsak"]
+    ny_installning(monkeypatch, OPENAI_API_KEY="sk-proj-x", STUDIO_BILDTJANST="av")
+    assert "avstängd" in klient.get("/api/status").json()["bilder_orsak"]
+    ny_installning(monkeypatch, STUDIO_BILDTJANST="openai")
+    s = klient.get("/api/status").json()
+    assert s["bilder"] is True and s["bilder_orsak"] is None
+
+
+def test_startloggen_visar_aldrig_nyckeln(miljo, monkeypatch, caplog):
+    from fastapi.testclient import TestClient
+
+    from app import main
+
+    ny_installning(monkeypatch, OPENAI_API_KEY="sk-proj-hemlig-nyckel-789")
+    with caplog.at_level("INFO"), TestClient(main.app):
+        pass
+    rad = next(r.getMessage() for r in caplog.records if r.getMessage().startswith("Bilder:"))
+    assert "openai" in rad and "gpt-image-2" in rad and "nyckel finns" in rad
+    assert "sk-proj-hemlig" not in caplog.text
+
+
+def test_env_filen_lases_och_en_tom_variabel_doljer_den_inte(tmp_path, monkeypatch):
+    import importlib
+
+    from app import config
+
+    env = tmp_path / ".env"
+    env.write_text("OPENAI_API_KEY=sk-proj-fran-env-filen\n", encoding="utf-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("STUDIO_ENV_FIL", str(env))
+    monkeypatch.setenv("STUDIO_DOTENV", "1")
+    try:
+        importlib.reload(config)
+        assert config.settings.openai_api_key == "sk-proj-fran-env-filen"
+        assert config.settings.bilder_aktiva and config.settings.status()["bilder"] is True
+        assert "sk-proj" not in json.dumps(config.settings.status()) and "sk-proj" not in repr(config.settings)
+    finally:
+        monkeypatch.setenv("STUDIO_DOTENV", "0")
+        monkeypatch.undo()
+        importlib.reload(config)
+
+
+def test_kontrollskriptet_visar_aldrig_nyckeln(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    rot = Path(__file__).resolve().parent.parent
+    bas = {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI", "STUDIO_BILD"))}
+    bas |= {"STUDIO_DOTENV": "0", "STUDIO_SECRETS_DIR": str(tmp_path)}
+    r = subprocess.run([sys.executable, "scripts/kontrollera_bilder.py"], cwd=rot, env=bas, capture_output=True, text=True)
+    assert r.returncode == 1 and "OPENAI_API_KEY:     saknas" in r.stdout and "✗ OPENAI_API_KEY saknas" in r.stdout
+    # Med testtjänsten görs inget nätverksanrop; nyckeln får ändå aldrig skrivas ut.
+    r = subprocess.run([sys.executable, "scripts/kontrollera_bilder.py"], cwd=rot, capture_output=True, text=True,
+                       env=bas | {"OPENAI_API_KEY": "sk-proj-hemlig-nyckel-000", "STUDIO_BILDTJANST": "test"})
+    assert r.returncode == 0 and "hittad" in r.stdout and "sk-proj-hemlig" not in r.stdout + r.stderr

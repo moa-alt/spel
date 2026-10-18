@@ -57,6 +57,8 @@ def main() -> None:
 
     if namn == "ANTHROPIC_API_KEY":
         testa_anthropic(varde)
+    if namn == "OPENAI_API_KEY":
+        print("Testa nyckeln utan kostnad med: python scripts/kontrollera_bilder.py")
     print("Starta om servern så att den läser in värdet.")
 
 

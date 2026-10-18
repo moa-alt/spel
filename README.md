@@ -242,6 +242,15 @@ Varje artikel har fyra bilder: en **huvudbild** direkt efter introduktionen och 
 - I simuleringsläget skickas ingenting.
 - Bildernas kontrollsummor ingår i godkännandet: byts en bild efter godkännandet stoppas publiceringen.
 
+**Aktivera riktiga AI-bilder.**
+1. Lägg `OPENAI_API_KEY=...` i `.env` i projektmappen. `.env` ignoreras av git. En tom variabel med samma namn i terminalen döljer inte värdet i `.env`.
+2. Ta bort `STUDIO_BILDTJANST=test` om du har satt den. Standardvärdet `openai` ger riktiga bilder.
+3. Kontrollera nyckel och modell utan kostnad: `python scripts/kontrollera_bilder.py`. Ingen bild skapas. Samma kontroll finns som knappen *Kontrollera bildtjänsten (gratis)* i Bild-fliken.
+4. Starta studion. Serverloggen visar `Bilder: openai (modell gpt-image-2, kvalitet medium, nyckel finns)`. Nyckeln visas aldrig.
+5. Testa med en enda bild: öppna en artikel, gå till *Bilder* och klicka *Skapa bild* på ett av korten. Du ser kostnaden för en bild och måste bekräfta den.
+
+Inga bilder skapas automatiskt, varken när artiklar genereras, vid *Generera alla* eller vid publicering.
+
 **Bildtjänst och nyckel.**
 - Standard är OpenAI:s bild-API med `OPENAI_API_KEY`. Spara nyckeln med `python scripts/spara_hemlighet.py OPENAI_API_KEY`, eller som en Fly-hemlighet i molnet.
 - Nyckeln läses bara på servern och skickas aldrig till webbläsaren, git eller loggarna.

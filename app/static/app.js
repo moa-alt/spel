@@ -523,13 +523,29 @@ function renderBildHuvud() {
   if (state.current && !BILD_STATUSAR.includes(s)) {
     text = s === "godkand" || s === "schemalagd" ? "Bilderna är låsta eftersom artikeln är godkänd. Återkalla godkännandet om du vill ändra dem." : "Bilderna kan inte ändras i artikelns nuvarande status.";
   } else if (!state.status.bilder) {
-    text = "Ingen bildtjänst är konfigurerad på servern (OPENAI_API_KEY). Du kan fortfarande byta bilder manuellt.";
+    text = `${state.status.bilder_orsak || "Ingen bildtjänst är konfigurerad på servern."} Du kan fortfarande byta bilder manuellt.`;
   } else if (state.current?.bilder_pagar) {
     text = "Bilderna skapas på servern. Varje bild sparas så fort den är klar, även om du stänger fönstret.";
   }
+  $("#imgNotice").className = "notice";
   $("#imgNotice").hidden = !text;
   $("#imgNotice").textContent = text;
+  const pris = state.status.bildkostnad;
+  $("#imgTjanst").textContent = pris ? (pris.tjanst === "test" ? "Testbilder (ingen kostnad)" : `${pris.modell} · ${pris.kvalitet} · ca ${pris.pris_per_bild_usd} USD per bild`) : "";
 }
+
+// Kontrollerar nyckel och modell utan att skapa någon bild.
+$("#imgCheck").addEventListener("click", async () => {
+  const btn = $("#imgCheck");
+  btn.disabled = true; btn.textContent = "Kontrollerar…";
+  try {
+    const r = await api("/api/bilder/kontrollera", {});
+    $("#imgNotice").hidden = false;
+    $("#imgNotice").className = "notice" + (r.ok ? " ok" : " bad");
+    $("#imgNotice").textContent = r.meddelande;
+  } catch (err) { toast(err.message); }
+  finally { btn.disabled = false; btn.textContent = "Kontrollera bildtjänsten (gratis)"; }
+});
 
 $("#images").addEventListener("input", (e) => {
   const el = e.target.closest("[data-f]");

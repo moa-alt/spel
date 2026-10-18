@@ -84,6 +84,20 @@ class OpenAIBilder:
     kalla = "ai"
     transport: httpx.AsyncBaseTransport | None = None  # för tester
 
+    async def kontrollera(self) -> None:
+        """Hämtar modellens uppgifter (gratis). Kastar BildFel om nyckeln eller modellen inte fungerar."""
+        s = config.settings
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(20.0), transport=self.transport) as k:
+                r = await k.get(f"{s.bild_api_url}/models/{s.bild_modell}",
+                                headers={"Authorization": f"Bearer {s.openai_api_key}"})
+        except httpx.TimeoutException:
+            raise BildFel("Bildtjänsten svarade inte i tid.", kan_forsoka=True)
+        except httpx.HTTPError:
+            raise BildFel("Kunde inte nå bildtjänsten. Kontrollera internetanslutningen.", kan_forsoka=True)
+        if r.status_code >= 400:
+            raise _tolka_fel(r)
+
     async def generera(self, prompt: str) -> bytes:
         s = config.settings
         try:
@@ -154,11 +168,38 @@ class TestBilder:
         return buf.getvalue()
 
 
-def tjanst():
+def saknas_orsak() -> str | None:
+    """Varför bildgenereringen inte är aktiv, eller None om den är det. Visar aldrig nyckeln."""
     s = config.settings
-    if not s.bilder_aktiva:
-        raise BildFel("Ingen bildtjänst är konfigurerad. Lägg in OPENAI_API_KEY på servern (se README).")
-    return TestBilder() if s.bildtjanst == "test" else OpenAIBilder()
+    if s.bildtjanst == "av":
+        return "Bildgenereringen är avstängd (STUDIO_BILDTJANST=av)."
+    if s.bildtjanst == "test":
+        return None if not s.produktion else "Testbilder kan inte användas i produktion. Ta bort STUDIO_BILDTJANST=test."
+    if not s.openai_api_key:
+        return ("OPENAI_API_KEY saknas på servern. Lägg den i .env i projektmappen (eller spara den med "
+                "python scripts/spara_hemlighet.py OPENAI_API_KEY) och starta om servern.")
+    return None
+
+
+def tjanst():
+    if orsak := saknas_orsak():
+        raise BildFel(orsak)
+    return TestBilder() if config.settings.bildtjanst == "test" else OpenAIBilder()
+
+
+async def kontrollera() -> dict:
+    """Kontrollerar nyckel och modell utan att skapa någon bild. Kostar ingenting."""
+    s = config.settings
+    svar = {"tjanst": s.bildtjanst, "modell": s.bild_modell, "kvalitet": s.bild_kvalitet, "nyckel": bool(s.openai_api_key)}
+    if orsak := saknas_orsak():
+        return svar | {"ok": False, "meddelande": orsak}
+    if s.bildtjanst == "test":
+        return svar | {"ok": True, "meddelande": "Testbilder används (ritas lokalt, ingen kostnad). Ta bort STUDIO_BILDTJANST=test för riktiga AI-bilder."}
+    try:
+        await OpenAIBilder().kontrollera()
+    except BildFel as e:
+        return svar | {"ok": False, "meddelande": str(e)}
+    return svar | {"ok": True, "meddelande": f"Nyckeln fungerar och modellen {s.bild_modell} är tillgänglig. Ingen bild skapades."}
 
 
 def kostnad(antal: int) -> dict:

@@ -10,12 +10,16 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 # .env läses in om inte STUDIO_DOTENV=0 (testerna stänger av den, så att de aldrig får dina riktiga inställningar).
 ENV_FIL = Path(os.getenv("STUDIO_ENV_FIL", Path(__file__).resolve().parent.parent / ".env"))
 if os.getenv("STUDIO_DOTENV", "1") != "0":
     load_dotenv(ENV_FIL)
+    # En tom variabel i terminalen (t.ex. OPENAI_API_KEY=) ska inte dölja värdet i .env.
+    for _namn, _varde in dotenv_values(ENV_FIL).items():
+        if _varde and not os.environ.get(_namn, "").strip():
+            os.environ[_namn] = _varde
 
 HEMLIGHETS_MAPP = Path(os.getenv("STUDIO_SECRETS_DIR", Path.home() / ".config" / "klimathemmet-studio"))
 
