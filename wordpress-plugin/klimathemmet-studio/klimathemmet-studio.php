@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Klimathemmet AI Studio
  * Description: Laddar artikeldesignen från AI Studio och gör SEO-fälten skrivbara via REST API för behöriga användare.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Klimathemmet
@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('KH_STUDIO_VERSION', '1.0.0');
+define('KH_STUDIO_VERSION', '1.1.0');
 
 /**
  * Metafält som AI Studio får skriva via REST API. Bara användare som får redigera
@@ -24,8 +24,10 @@ function kh_studio_meta_falt() {
         '_kh_studio_id',          // markerar inlägg som skapats av AI Studio (skydd mot dubbelpublicering)
         '_yoast_wpseo_title',     // Yoast SEO
         '_yoast_wpseo_metadesc',
+        '_yoast_wpseo_focuskw',   // fokusnyckelord (visas i SEO-kartan)
         'rank_math_title',        // Rank Math
         'rank_math_description',
+        'rank_math_focus_keyword',
     );
 }
 

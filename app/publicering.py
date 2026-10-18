@@ -292,6 +292,9 @@ async def _publicera(slot: dict, nu: datetime, transport=None) -> None:
     if wp_status == "publish":
         _avsluta(slot, "publicerad", "publicerad", "publicerad", f"Publicerad: {post.get('link', '')}",
                  wp_post_id=post["id"], wp_lank=post.get("link"))
+        from .lankforslag import artikel_publicerad
+
+        artikel_publicerad(slot["artikel_id"], post.get("link") or "")
     else:
         _avsluta(slot, "utkast", "godkand", "wp_utkast_skapat",
                  f"Utkastläge: utkast skapat i WordPress (inlägg {post['id']}), inget publicerades.",
@@ -341,11 +344,28 @@ def daglig_sakerhetskopia(nu: datetime | None = None, behall: int = 14) -> None:
     log.info("Säkerhetskopia sparad: %s", fil.name)
 
 
+async def _kartlagg_vid_behov() -> None:
+    """Efter en publicering kartläggs sajten om, så att länkstrukturen är aktuell."""
+    with db._conn() as c:
+        r = c.execute("SELECT varde FROM installningar WHERE nyckel = 'kartlagg_behovs'").fetchone()
+    if not r or r[0] != "1" or not config.settings.wp_url:
+        return
+    from . import sajtkarta
+
+    with db._conn() as c:
+        c.execute("UPDATE installningar SET varde = '0' WHERE nyckel = 'kartlagg_behovs'")
+    try:
+        await sajtkarta.kartlagg()
+    except sajtkarta.KartFel as e:
+        log.warning("Omkartläggning misslyckades: %s", e)
+
+
 async def schemalaggare() -> None:
     log.info("Schemaläggaren startad (läge: %s)", config.settings.publicering)
     while True:
         try:
             await kor_en_gang()
+            await _kartlagg_vid_behov()
             await asyncio.to_thread(daglig_sakerhetskopia)
         except asyncio.CancelledError:
             raise

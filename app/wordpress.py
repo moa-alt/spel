@@ -165,3 +165,18 @@ class WordPress:
         if kontroll.get("status") != status:
             raise WordPressFel(f"WordPress sparade inlägget med status {kontroll.get('status')} i stället för {status}.")
         return kontroll
+
+    # ---------- Befintliga inlägg och sidor ----------
+
+    @staticmethod
+    def _typvag(typ: str) -> str:
+        return {"post": "posts", "page": "pages"}[typ]
+
+    async def hamta_redigerbar(self, typ: str, wp_id: int) -> dict:
+        """Innehållet som det är sparat i WordPress (raw), med ändringstid. Ändrar ingenting."""
+        r = await self._anrop("GET", f"/wp/v2/{self._typvag(typ)}/{wp_id}", params={"context": "edit"})
+        return r.json()
+
+    async def uppdatera_innehall(self, typ: str, wp_id: int, raw: str) -> dict:
+        """Sparar nytt innehåll. Anropas bara efter godkännande och konfliktkontroll."""
+        return (await self._anrop("POST", f"/wp/v2/{self._typvag(typ)}/{wp_id}", json={"content": raw})).json()

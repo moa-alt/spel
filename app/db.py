@@ -82,6 +82,12 @@ def init() -> None:
         )
 
 
+def lagg_till_kolumn(c, tabell: str, kolumn: str, definition: str) -> None:
+    """Enkel migrering: lägger till en kolumn i en befintlig databas om den saknas."""
+    if kolumn not in {r[1] for r in c.execute(f"PRAGMA table_info({tabell})")}:
+        c.execute(f"ALTER TABLE {tabell} ADD COLUMN {kolumn} {definition}")
+
+
 def _rad(r: sqlite3.Row, med_innehall: bool) -> dict:
     d = {
         "id": r["id"],

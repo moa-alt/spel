@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 
-from . import auth, config, db, jobb, publicering, sajtkarta, seo_ai
+from . import auth, config, db, jobb, lankforslag, publicering, sajtkarta, seo_ai
 from .planering import MAX_SEKUNDARA, CsvFel, liknande, normalisera_sokord, tolka_csv
 from .publicering import PubliceringsFel
 from .render import wordpress_block
@@ -38,6 +38,7 @@ async def lifespan(_app: FastAPI):
     publicering.init()
     sajtkarta.init()
     seo_ai.init()
+    lankforslag.init()
     uppgift = asyncio.create_task(publicering.schemalaggare()) if config.settings.schemalaggare else None
     yield
     if uppgift:
@@ -249,6 +250,7 @@ def hamta_artikel(artikel_id: int):
     artikel["historik"] = db.historik(artikel_id)
     artikel["lankplan"] = seo_ai.lankplan(artikel_id)
     artikel["lankkontroll"] = seo_ai.lankkontroll((artikel["innehall"] or {}).get("html", ""))
+    artikel["inkommande_forslag"] = lankforslag.for_artikel(artikel_id)
     return artikel
 
 
@@ -474,7 +476,8 @@ class Kommersiell(BaseModel):
 @app.get("/api/seokarta")
 def seokarta():
     return {**sajtkarta.analysera(), "forslag": seo_ai.lista_forslag(), "wp_url": config.settings.wp_url,
-            "ai": bool(config.settings.anthropic_api_key)}
+            "ai": bool(config.settings.anthropic_api_key), "lankforslag_antal": lankforslag.oversikt(),
+            "lage": config.settings.publicering}
 
 
 @app.post("/api/seokarta/kartlagg")
@@ -523,6 +526,92 @@ def seokarta_till_kon(forslag_id: int):
 def seokarta_avvisa_forslag(forslag_id: int):
     seo_ai.avvisa(forslag_id)
     return {"ok": True}
+
+
+# ---------- Länkförslag ----------
+
+class Ids(BaseModel):
+    ids: list[int] = Field(max_length=500)
+
+
+class Bekraftelse(Ids):
+    bekraftad: bool = False
+
+
+class Ankare(BaseModel):
+    ankartext: str = Field(min_length=1, max_length=200)
+
+
+@app.get("/api/lankforslag")
+def lista_lankforslag():
+    return {"forslag": lankforslag.lista(("ny", "godkand", "konflikt", "fel", "simulerad", "verkstalld", "vantar_pa_publicering")),
+            "andringar": lankforslag.andringar(), "logg": lankforslag.logg(), "lage": config.settings.publicering,
+            "wordpress": config.settings.status()["wordpress"]}
+
+
+@app.post("/api/lankforslag/berakna")
+def berakna_lankforslag():
+    """Förslag utan AI: stycken som redan nämner målsidans nyckelord. Ändrar ingenting på sajten."""
+    return {"nya": lankforslag.berakna_for_sajten()}
+
+
+@app.post("/api/lankforslag/ai")
+async def ai_lankforslag():
+    try:
+        return {"nya": await lankforslag.ai_for_sajten()}
+    except lankforslag.LankFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/api/lankforslag/{fid}/forhandsgranskning")
+def forhandsgranska_lank(fid: int):
+    try:
+        return lankforslag.forhandsgranska(fid)
+    except lankforslag.LankFel as e:
+        raise HTTPException(404, str(e))
+
+
+@app.patch("/api/lankforslag/{fid}")
+def redigera_lank(fid: int, body: Ankare):
+    try:
+        return lankforslag.redigera(fid, body.ankartext)
+    except lankforslag.LankFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/lankforslag/godkann")
+def godkann_lankar(body: Ids):
+    """Godkänner förslag. Godkännandet ändrar inte sajten; det gör först Uppdatera sajten."""
+    return {"godkanda": lankforslag.byt_status(body.ids, ("ny", "konflikt", "fel"), "godkand")}
+
+
+@app.post("/api/lankforslag/avvisa")
+def avvisa_lankar(body: Ids):
+    return {"avvisade": lankforslag.byt_status(body.ids, ("ny", "godkand", "konflikt", "fel", "vantar_pa_publicering"), "avvisad")}
+
+
+@app.post("/api/lankforslag/aterkalla")
+def aterkalla_lankar(body: Ids):
+    return {"aterkallade": lankforslag.byt_status(body.ids, ("godkand",), "ny")}
+
+
+@app.post("/api/lankforslag/verkstall")
+async def verkstall_lankar(body: Bekraftelse):
+    """Uppdaterar den publicerade sajten med godkända förslag. Kräver uttrycklig bekräftelse."""
+    if not body.bekraftad:
+        raise HTTPException(400, "Uppdateringen av sajten måste bekräftas.")
+    try:
+        return await lankforslag.verkstall(body.ids)
+    except lankforslag.LankFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/lankandringar/{andring_id}/aterstall")
+async def aterstall_lankandring(andring_id: int):
+    try:
+        return {"resultat": await lankforslag.aterstall(andring_id)}
+    except (lankforslag.LankFel, WordPressFel) as e:
+        raise HTTPException(409, str(e))
 
 
 # ---------- Gränssnitt ----------

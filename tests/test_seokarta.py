@@ -5,13 +5,13 @@ import httpx
 import pytest
 
 from conftest import ny_installning
-from falsk_sajt import transport
+from falsk_sajt import hanterare
 
 BAS = "https://klimathemmet.se"
 
 
 def falsk_sajt(request: httpx.Request) -> httpx.Response:
-    return transport(BAS)(request)
+    return hanterare(BAS)(request)
 
 
 @pytest.fixture()

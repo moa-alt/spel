@@ -255,6 +255,14 @@ def test_seo_karta(sajt_server, browser, enhet):
     assert "Inkommande länkar (3)" in page.text_content("#seoDetail")
     assert "trasig länk" in page.text_content("#seoDetail")
 
+    # Klusterfärger, riktningspilar och översikt.
+    assert page.locator("#clusterLegend li").count() == 2
+    assert page.locator("#graph path.pilspets").count() >= 5
+    assert "isolerade sidor" in page.text_content("#seoStats") and "väntande länkförslag" in page.text_content("#seoStats")
+    page.select_option("#fIn", "0")
+    assert page.locator("#nodeTable tr").count() == 4  # tre sidor utan inkommande länkar och kategorin Fukt
+    page.select_option("#fIn", "")
+
     # Filtrera på sidor utan inkommande länkar.
     page.select_option("#fStatus", "foraldralos")
     assert page.locator("#nodeTable tr").count() == 3
@@ -285,4 +293,47 @@ def test_ny_artikel_far_internlankar_fran_kartan(sajt_server, browser):
     assert page.locator("#linksList li.bad").count() == 0
     assert "internlänkar" in page.text_content("#checks")
     _skarmbild(page, "dator-8-internlankar")
+    ctx.close()
+
+
+@pytest.mark.parametrize("enhet", ["iphone", "dator"])
+def test_lankforslag_kraver_godkannande(sajt_server, browser, enhet):
+    ctx = browser.new_context(**ENHETER[enhet])
+    page = ctx.new_page()
+    fel = []
+    page.on("pageerror", lambda e: fel.append(str(e)))
+    page.goto(sajt_server)
+    page.click('.view-btn[data-view="seo"]')
+    page.locator("#mapBtn:not([disabled])").wait_for()
+    page.click("#mapBtn")
+    page.locator("#mapBtn:not([disabled])").wait_for()
+    page.locator("#graph .nod").first.wait_for()
+
+    page.click("#calcLinksBtn")
+    page.locator("#linkList .lf").first.wait_for()
+    forsta = page.locator("#linkList .lf").first
+    assert forsta.locator("mark").count() == 1  # förhandsgranskning av exakt var länken hamnar
+    assert "Beräknat" in forsta.text_content()
+    assert page.locator("#applyLinksBtn").is_disabled()  # inget är godkänt ännu
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-9-lankforslag")
+
+    page.check("#checkAll")
+    page.click("#approveLinksBtn")
+    page.locator("#applyLinksBtn:not([disabled])").wait_for()
+    page.click("#applyLinksBtn")
+    assert page.locator("#applyOk").is_disabled()
+    assert page.locator("#applyList li").count() >= 1
+    _skarmbild(page, f"{enhet}-10-uppdatera-dialog")
+    page.check("#applyConfirm")
+    page.click("#applyOk")
+    page.locator("#toast", has_text="simulerade").wait_for()
+    page.click('[data-lankfilter="ovriga"]')
+    assert page.locator("#linkList .lf", has_text="Simulerad").count() >= 1
+    _ingen_sidscroll(page)
+
+    # Detaljvyn visar huvudnyckelord.
+    page.locator("#nodeTable tr", has_text="FTX-ventilation i villa").first.click()
+    page.locator("#seoDetail", has_text="Huvudnyckelord").wait_for()
+    assert fel == []
     ctx.close()

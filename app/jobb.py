@@ -8,7 +8,7 @@ import asyncio
 import html
 import logging
 
-from . import db, seo_ai
+from . import db, lankforslag, seo_ai
 from .ai_writer import GenereringsFel, generera_artikel
 from . import config
 from .demo import build_demo_article
@@ -70,6 +70,8 @@ async def _kor(artikel_id: int) -> None:
             resultat["html"], resultat["internlankar"] = seo_ai.kontrollera_lankar(
                 resultat["html"], {m["url"] for m in lankmal})
             db.byt_status(artikel_id, ("genereras",), "granskas", innehall=resultat, fel=None, andringar=None)
+            # Befintliga artiklar som kan länka till den nya; blir godkännbara först när den är publicerad.
+            lankforslag.for_ny_artikel(db.hamta(artikel_id))
             db.logga(artikel_id, "genererad", "Med begärda ändringar" if andringar else None, db.innehall_hash(resultat))
     except GenereringsFel as e:
         db.byt_status(artikel_id, ("genereras",), "fel", fel=str(e))

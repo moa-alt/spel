@@ -107,22 +107,33 @@
           <select id="fTyp">
             <option value="">Alla typer</option><option value="post">Artiklar</option><option value="page">Sidor</option><option value="kategori">Kategorier</option>
           </select></label>
+        <label class="field"><span class="label">Inkommande länkar</span>
+          <select id="fIn">
+            <option value="">Alla</option><option value="0">0</option><option value="1-2">1–2</option><option value="3-9">3–9</option><option value="10">10 eller fler</option>
+          </select></label>
         <label class="field"><span class="label">SEO-status</span>
           <select id="fStatus">
-            <option value="">Alla</option><option value="pelare">Pelarsidor</option><option value="foraldralos">Saknar inkommande länkar</option>
-            <option value="trasiga">Har trasiga länkar</option><option value="kommersiell">Kommersiella sidor</option>
+            <option value="">Alla</option><option value="pelare">Pelarsidor</option><option value="isolerad">Isolerade sidor</option>
+            <option value="foraldralos">Saknar inkommande länkar</option><option value="fa">Få inkommande länkar (1–2)</option>
+            <option value="trasiga">Har brutna länkar</option><option value="kommersiell">Kommersiella sidor</option>
           </select></label>
       </div>
 
       <div class="seo-main">
         <section class="card graph-card">
           <div class="graph-tools">
-            <ul class="legend" aria-label="Förklaring">
-              <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" class="n-pelare"/></svg>Pelarsida</li>
-              <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" class="n-stod"/></svg>Stödartikel</li>
-              <li><svg width="14" height="14" aria-hidden="true"><rect x="2" y="2" width="10" height="10" rx="2" class="n-kategori"/></svg>Kategori</li>
-              <li><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" class="n-foraldralos"/></svg>Saknar inkommande länkar</li>
-            </ul>
+            <div class="legends">
+              <ul class="legend" id="clusterLegend" aria-label="Ämneskluster"></ul>
+              <ul class="legend legend-status" aria-label="Förklaring av former">
+                <li><svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" class="l-form l-pelare"/></svg>Pelarsida</li>
+                <li><svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="5" class="l-form"/></svg>Stödartikel</li>
+                <li><svg width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="2" class="l-form"/></svg>Kategori</li>
+                <li><svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="5" class="l-form l-utan"/></svg>Saknar inkommande</li>
+                <li><svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="5" class="l-form l-fa"/></svg>Få inkommande</li>
+                <li><span class="l-x" aria-hidden="true">×</span>Brutna länkar</li>
+                <li><svg width="22" height="10" aria-hidden="true"><line x1="1" y1="5" x2="15" y2="5" class="l-pil"/><path d="M14 1.5 21 5l-7 3.5z" class="l-pilspets"/></svg>Länkens riktning</li>
+              </ul>
+            </div>
             <div class="zoom">
               <button class="btn btn-ghost btn-icon" id="zoomIn" type="button" aria-label="Zooma in">+</button>
               <button class="btn btn-ghost btn-icon" id="zoomOut" type="button" aria-label="Zooma ut">−</button>
@@ -150,6 +161,36 @@
         <h2 class="card-title">Bedömningar att kontrollera <span class="tag tag-warn">Beräknat</span></h2>
         <p class="muted pub-text">Beräknat från likhet mellan titlar och adresser. Kontrollera innan du agerar.</p>
         <div class="problem-grid" id="beraknat"></div>
+      </section>
+
+      <section class="card seo-section" id="linkSection">
+        <div class="section-head">
+          <h2 class="card-title">Länkförslag</h2>
+          <div class="actions">
+            <button class="btn btn-ghost btn-sm" id="calcLinksBtn" type="button">Hitta länkmöjligheter</button>
+            <button class="btn btn-ghost btn-sm" id="aiLinksBtn" type="button">Låt AI föreslå länkar</button>
+          </div>
+        </div>
+        <p class="muted pub-text">Förslag på interna länkar i befintliga artiklar. <span class="tag tag-warn">Beräknat</span> betyder att stycket redan nämner målsidans ämne; <span class="tag tag-ai">AI-förslag</span> betyder att AI har läst artikeln. Varje förslag är kontrollerat: ankartexten står ordagrant i stycket och länken finns inte redan. Ingenting ändras på sajten förrän du godkänner förslaget och sedan väljer att uppdatera sajten.</p>
+        <div class="link-mode" id="linkMode"></div>
+        <div class="link-toolbar">
+          <div class="seg" role="group" aria-label="Visa">
+            <button class="seg-btn active" data-lankfilter="ny" type="button">Nya</button>
+            <button class="seg-btn" data-lankfilter="godkand" type="button">Godkända</button>
+            <button class="seg-btn" data-lankfilter="ovriga" type="button">Historik</button>
+          </div>
+          <label class="check-all"><input type="checkbox" id="checkAll"> Markera alla</label>
+          <div class="actions">
+            <button class="btn btn-ghost btn-sm" id="rejectLinksBtn" type="button" disabled>Avvisa markerade</button>
+            <button class="btn btn-ghost btn-sm" id="approveLinksBtn" type="button" disabled>Godkänn markerade</button>
+            <button class="btn btn-primary btn-sm" id="applyLinksBtn" type="button" disabled>Uppdatera sajten</button>
+          </div>
+        </div>
+        <ul class="link-forslag" id="linkList"></ul>
+        <details class="link-history" id="linkHistory">
+          <summary>Ändringshistorik och återställning</summary>
+          <ul class="history" id="changeList"></ul>
+        </details>
       </section>
 
       <section class="card seo-section">
@@ -370,6 +411,7 @@
               <span class="label">Internlänkar i artikeln</span>
               <ul class="checks" id="linksList"></ul>
               <div id="linksPlan"></div>
+              <div id="inForslag"></div>
             </div>
             <div class="card intent" id="intentCard" hidden>
               <span class="label">Sökintention <span class="intent-typ" id="intentTyp"></span></span>
@@ -416,6 +458,22 @@
       <div class="dialog-actions">
         <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Avbryt</button>
         <button class="btn btn-primary" id="dialogOk" value="ok" type="submit"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialog dialog-wide" id="applyDialog">
+    <form method="dialog">
+      <h2>Uppdatera sajten</h2>
+      <p class="muted" id="applyText"></p>
+      <ul class="apply-list" id="applyList"></ul>
+      <label class="confirm-check">
+        <input type="checkbox" id="applyConfirm">
+        <span>Jag har granskat ändringarna och vill att de görs på klimathemmet.se.</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Avbryt</button>
+        <button class="btn btn-primary" id="applyOk" value="ok" type="submit" disabled>Uppdatera sajten</button>
       </div>
     </form>
   </dialog>

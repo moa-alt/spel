@@ -234,6 +234,13 @@ function renderLinks() {
        <p class="muted">Befintliga artiklar som kan länka hit. Inga publicerade artiklar ändras utan ditt godkännande.</p>
        <ul>${plan.lanka_fran.map((u) => `<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/[^/]+/, ""))}</a></li>`).join("")}</ul>`
     : "";
+  const inn = rec?.inkommande_forslag || [];
+  if (inn.length) $("#linksCard").hidden = false;
+  $("#inForslag").innerHTML = inn.length
+    ? `<strong>Befintliga artiklar som kan länka hit</strong>
+       <p class="muted">${inn.some((f) => f.status === "vantar_pa_publicering") ? "Förslagen kan godkännas i SEO-kartan när artikeln är publicerad." : "Godkänn förslagen under SEO-karta → Länkförslag."} Publicerade artiklar ändras bara med ett separat godkännande.</p>
+       <ul class="rek">${inn.map((f) => `<li class="beraknad"><b>${esc(f.kalla_titel)}</b>: ”${esc(f.ankartext)}” <span class="muted">(${LANK_STATUS[f.status] || f.status})</span></li>`).join("")}</ul>`
+    : "";
 }
 
 function renderIntent() {
@@ -807,7 +814,8 @@ const HANDLING_NAMN = {
   publicering_simulerad: "Simulerad publicering", wp_utkast_skapat: "Utkast i WordPress", publicering_stoppad: "Publicering stoppad",
   publicering_misslyckad: "Publicering misslyckades", publicering_forsok: "Nytt försök planerat", publicering_missad: "Publiceringsdag missad",
   publicering_pausad: "Publicering pausad", publicering_aterupptagen: "Publicering återupptagen",
-  genererad: "Text genererad", fran_seo_karta: "Från SEO-kartan", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
+  genererad: "Text genererad", fran_seo_karta: "Från SEO-kartan",
+  lank_tillagd: "Länk tillagd", lank_simulerad: "Länk simulerad", lank_aterstalld: "Länkar återställda", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
   andringar_begarda: "Ändringar begärda", avvisad: "Avvisad", aterstalld: "Återställd",
   godkannande_aterkallat: "Godkännande återkallat", godkannande_upphavt: "Godkännande upphävt",
 };
@@ -1040,12 +1048,20 @@ $("#wpCheckBtn").addEventListener("click", async () => {
 /* ---------- SEO-karta ---------- */
 const ROLL_NAMN = { pelare: "Pelarsida", stod: "Stödartikel", kategori: "Kategori" };
 const TYP_NAMN = { post: "Artikel", page: "Sida", kategori: "Kategori" };
-const seo = { data: null, pos: null, vald: null, vy: null, klusterNamn: {} };
+const seo = { data: null, pos: null, vald: null, vy: null, klusterNamn: {}, farg: {} };
+// Kategorisk palett (kontrollerad för färgblindhet). Varje kluster får en fast färg efter namn, så att
+// färgerna inte byter plats när kartan filtreras eller kartläggs om. Fler än åtta kluster blir grå.
+const KLUSTER_FARGER = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"];
+const OVRIG_FARG = "#9C998F";
 
 async function loadSeo() {
   try { seo.data = await api("/api/seokarta"); } catch (err) { toast(err.message); return; }
   const d = seo.data;
   seo.klusterNamn = Object.fromEntries(d.kluster.map((k) => [k.id, k.namn]));
+  const namnordning = d.kluster.filter((k) => k.id !== "ovrigt").map((k) => k.id)
+    .sort((a, b) => seo.klusterNamn[a].localeCompare(seo.klusterNamn[b], "sv"));
+  seo.farg = Object.fromEntries(namnordning.map((id, i) => [id, KLUSTER_FARGER[i] || OVRIG_FARG]));
+  $("#clusterLegend").innerHTML = d.kluster.map((k) => `<li><span class="dot" style="background:${seo.farg[k.id] || OVRIG_FARG}"></span>${esc(k.namn)}</li>`).join("");
   $("#aiBtn").disabled = !d.noder.length || !d.ai;
   $("#aiBtn").title = d.ai ? "" : "Kräver ANTHROPIC_API_KEY på servern";
   $("#mapBtn").disabled = !d.wp_url;
@@ -1062,9 +1078,11 @@ async function loadSeo() {
   sel.innerHTML = `<option value="">Alla kluster</option>` + d.kluster.map((k) => `<option value="${esc(k.id)}">${esc(k.namn)} (${k.antal})</option>`).join("");
   sel.value = d.kluster.some((k) => k.id === fore) ? fore : "";
   const v = d.verifierat;
+  const lf = d.lankforslag_antal || {};
   const stats = [
-    [d.noder.length, "sidor"], [d.kanter.length, "fungerande internlänkar"], [d.kluster.length, "ämneskluster"],
-    [v.utan_inkommande.length, "utan inkommande länkar"], [v.trasiga_lankar.reduce((n, x) => n + x.lankar.length, 0), "trasiga länkar"],
+    [d.noder.length, "kartlagda sidor"], [v.isolerade.length, "isolerade sidor"],
+    [v.trasiga_lankar.reduce((n, x) => n + x.lankar.length, 0), "brutna interna länkar"],
+    [d.kluster.filter((k) => k.id !== "ovrigt").length, "ämneskluster"], [(lf.ny || 0) + (lf.godkand || 0), "väntande länkförslag"],
   ];
   $("#seoStats").innerHTML = stats.map(([n, t]) => `<div class="stat"><b>${n.toLocaleString("sv-SE")}</b><span>${t}</span></div>`).join("");
   layoutGraph();
@@ -1072,19 +1090,26 @@ async function loadSeo() {
   renderProblems();
   renderForslag();
   renderNodeTable();
+  loadLinks();
 }
 
 function nodSynlig(n) {
-  const k = $("#fKluster").value, t = $("#fTyp").value, st = $("#fStatus").value;
+  const k = $("#fKluster").value, t = $("#fTyp").value, st = $("#fStatus").value, inn = $("#fIn").value;
   if (k && n.kluster !== k) return false;
   if (t && n.typ !== t) return false;
+  if (inn === "0" && n.in !== 0) return false;
+  if (inn === "1-2" && (n.in < 1 || n.in > 2)) return false;
+  if (inn === "3-9" && (n.in < 3 || n.in > 9)) return false;
+  if (inn === "10" && n.in < 10) return false;
   if (st === "pelare" && n.roll !== "pelare") return false;
+  if (st === "isolerad" && !n.isolerad) return false;
+  if (st === "fa" && !n.fa_inkommande) return false;
   if (st === "foraldralos" && !n.foraldralos) return false;
   if (st === "trasiga" && !n.trasiga) return false;
   if (st === "kommersiell" && !n.kommersiell) return false;
   return true;
 }
-["#fKluster", "#fTyp", "#fStatus"].forEach((id) => $(id).addEventListener("change", () => { renderGraph(); renderNodeTable(); }));
+["#fKluster", "#fTyp", "#fStatus", "#fIn"].forEach((id) => $(id).addEventListener("change", () => { renderGraph(); renderNodeTable(); }));
 
 // Enkel kraftbaserad layout: kluster placeras runt en cirkel, länkar drar ihop, alla noder stöter bort varandra.
 function layoutGraph() {
@@ -1143,29 +1168,39 @@ function skala() {
   const r = $("#graph").getBoundingClientRect();
   return r.width ? Math.max(seo.vy[2] / r.width, seo.vy[3] / r.height) : 1;
 }
-function nodKlass(nd) { return nd.foraldralos ? "n-foraldralos" : `n-${nd.roll}`; }
-
 function renderGraph() {
   const svg = $("#graph");
   const { noder, kanter } = seo.data;
   const pos = seo.pos;
   const k = skala();
-  const valdaKanter = new Set();
-  if (seo.vald) kanter.forEach((k, i) => { if (k.fran === seo.vald || k.till === seo.vald) valdaKanter.add(i); });
-  const linjer = kanter.map((k, i) => {
-    const a = pos[k.fran], b = pos[k.till];
-    return a && b ? `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"${valdaKanter.has(i) ? ' class="aktiv"' : ""}/>` : "";
+  const per = Object.fromEntries(noder.map((n) => [n.id, n]));
+  // Linjer med pilspets vid målsidan; pilen hamnar vid nodens kant oavsett zoom.
+  const kantSvg = kanter.map((kant) => {
+    const a = pos[kant.fran], b = pos[kant.till], na = per[kant.fran], nb = per[kant.till];
+    if (!a || !b) return "";
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+    const ra = radie(na) * k, rb = radie(nb) * k + 2 * k;
+    if (len < ra + rb + 6 * k) return "";
+    const x1 = a.x + ux * ra, y1 = a.y + uy * ra, x2 = b.x - ux * rb, y2 = b.y - uy * rb;
+    const sp = 7 * k, w = 3.5 * k, bx = x2 - ux * sp, by = y2 - uy * sp;
+    const aktiv = seo.vald && (kant.fran === seo.vald || kant.till === seo.vald) ? " aktiv" : "";
+    const dold = nodSynlig(na) || nodSynlig(nb) ? "" : ' opacity="0.15"';
+    return `<g${dold}><line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}" class="${aktiv.trim()}"/>`
+      + `<path d="M${x2.toFixed(1)} ${y2.toFixed(1)}L${(bx - uy * w).toFixed(1)} ${(by + ux * w).toFixed(1)}L${(bx + uy * w).toFixed(1)} ${(by - ux * w).toFixed(1)}Z" class="pilspets${aktiv}"/></g>`;
   }).join("");
-  const noderSvg = noder.map((nd) => {
+  const nodSvg = noder.map((nd) => {
     const q = pos[nd.id], r = radie(nd) * k;
+    const farg = seo.farg[nd.kluster] || OVRIG_FARG;
+    const klass = ["form", nd.roll === "pelare" ? "pelare" : "", nd.foraldralos ? "utan" : nd.fa_inkommande ? "fa" : ""].join(" ").trim();
     const form = nd.typ === "kategori"
-      ? `<rect x="${(q.x - r).toFixed(1)}" y="${(q.y - r).toFixed(1)}" width="${2 * r}" height="${2 * r}" rx="3" class="${nodKlass(nd)}"/>`
-      : `<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${r.toFixed(1)}" class="${nodKlass(nd)}"/>`;
+      ? `<rect x="${(q.x - r).toFixed(1)}" y="${(q.y - r).toFixed(1)}" width="${(2 * r).toFixed(1)}" height="${(2 * r).toFixed(1)}" rx="${(3 * k).toFixed(1)}" fill="${farg}" class="${klass}"/>`
+      : `<circle cx="${q.x.toFixed(1)}" cy="${q.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${farg}" class="${klass}"/>`;
+    const bruten = nd.trasiga ? `<text class="bruten" x="${(q.x + r * 0.55).toFixed(1)}" y="${(q.y - r * 0.55).toFixed(1)}" font-size="${(14 * k).toFixed(2)}" stroke-width="${(3 * k).toFixed(2)}">×</text>` : "";
     const etikett = nd.roll === "pelare" || nd.typ === "kategori" || nd.id === seo.vald
       ? `<text x="${(q.x + r + 4 * k).toFixed(1)}" y="${(q.y + 4 * k).toFixed(1)}" font-size="${(12 * k).toFixed(2)}" stroke-width="${(3 * k).toFixed(2)}">${esc(nd.titel.length > 34 ? nd.titel.slice(0, 33) + "…" : nd.titel)}</text>` : "";
-    return `<g class="nod${nodSynlig(nd) ? "" : " dold"}${nd.id === seo.vald ? " vald" : ""}" data-id="${nd.id}" tabindex="0" role="button" aria-label="${esc(nd.titel)}">${form}${etikett}</g>`;
+    return `<g class="nod${nodSynlig(nd) ? "" : " dold"}${nd.id === seo.vald ? " vald" : ""}" data-id="${nd.id}" tabindex="0" role="button" aria-label="${esc(nd.titel)}">${form}${bruten}${etikett}</g>`;
   }).join("");
-  svg.innerHTML = `<g>${linjer}</g><g>${noderSvg}</g>`;
+  svg.innerHTML = `<g>${kantSvg}</g><g>${nodSvg}</g>`;
   svg.setAttribute("viewBox", seo.vy.map((v) => v.toFixed(1)).join(" "));
 }
 
@@ -1247,7 +1282,8 @@ function visaTips(e) {
   if (!g) { tip.hidden = true; return; }
   const nd = seo.data.noder.find((n) => n.id === Number(g.dataset.id));
   const r = $(".graph-wrap").getBoundingClientRect();
-  tip.innerHTML = `<strong>${esc(nd.titel)}</strong><br>${ROLL_NAMN[nd.roll]} · ${esc(seo.klusterNamn[nd.kluster] || "")}<br>${nd.in} in · ${nd.ut} ut${nd.trasiga ? ` · ${nd.trasiga} trasiga` : ""}`;
+  const status = nd.isolerad ? " · isolerad" : nd.foraldralos ? " · saknar inkommande" : nd.fa_inkommande ? " · få inkommande" : "";
+  tip.innerHTML = `<strong>${esc(nd.titel)}</strong><br>${ROLL_NAMN[nd.roll]} · ${esc(seo.klusterNamn[nd.kluster] || "")}<br>${nd.in} in · ${nd.ut} ut${nd.trasiga ? ` · ${nd.trasiga} brutna` : ""}${status}`;
   tip.hidden = false;
   tip.style.left = `${Math.min(r.width - 250, e.clientX - r.left + 12)}px`;
   tip.style.top = `${e.clientY - r.top + 12}px`;
@@ -1270,7 +1306,8 @@ async function valjNod(id) {
     <div class="url">${lank(d.url, d.url)}</div>
     <dl>
       <dt>Typ</dt><dd>${TYP_NAMN[d.typ]} · ${ROLL_NAMN[nd.roll]}</dd>
-      <dt>Kluster</dt><dd>${esc(seo.klusterNamn[nd.kluster] || "")}</dd>
+      <dt>Kluster</dt><dd><span class="dot-inline" style="background:${seo.farg[nd.kluster] || OVRIG_FARG}"></span>${esc(seo.klusterNamn[nd.kluster] || "")}</dd>
+      ${d.typ !== "kategori" ? `<dt>Huvudnyckelord</dt><dd>${esc(d.huvudnyckelord)} <span class="muted">(${esc(d.nyckelord_kalla)})</span></dd>` : ""}
       ${d.typ !== "kategori" ? `<dt>Längd</dt><dd>${d.ord.toLocaleString("sv-SE")} ord</dd>` : ""}
       ${d.seo_titel != null ? `<dt>SEO-titel</dt><dd>${esc(d.seo_titel)} <span class="muted">(${d.seo_titel.length} tecken)</span></dd>` : ""}
       ${d.seo_beskrivning != null ? `<dt>Metabeskrivning</dt><dd>${d.seo_beskrivning ? `${esc(d.seo_beskrivning)} <span class="muted">(${d.seo_beskrivning.length} tecken)</span>` : `<span style="color:var(--bad)">Saknas</span>`}</dd>` : ""}
@@ -1279,7 +1316,12 @@ async function valjNod(id) {
     <h4>Inkommande länkar (${d.inkommande.length})</h4>
     <ul class="link-list">${inn || `<li>Inga – sidan saknar inkommande internlänkar.</li>`}</ul>
     <h4>Utgående länkar (${d.utgaende.length})</h4>
-    <ul class="link-list">${ut || "<li>Inga.</li>"}</ul>`;
+    <ul class="link-list">${ut || "<li>Inga.</li>"}</ul>
+    <h4>Rekommenderade nya länkar</h4>
+    <ul class="rek">${[
+      ...d.forslag.map((f) => `<li>${f.kalla_id === id ? `Länka härifrån till <b>${esc(f.mal_titel || f.mal_artikel || f.mal_url)}</b>` : `Länka hit från <b>${esc(f.kalla_titel)}</b>`} med ”${esc(f.ankartext)}” <span class="tag ${f.ursprung === "ai" ? "tag-ai" : "tag-warn"}">${f.ursprung === "ai" ? "AI-förslag" : "Beräknat"}</span></li>`),
+      ...d.narliggande.map((x) => `<li class="beraknad">Närliggande utan länk: <b>${esc(x.a === id ? x.b_titel : x.a_titel)}</b> <span class="tag tag-warn">Beräknat</span></li>`),
+    ].join("") || '<li class="beraknad">Inga rekommendationer just nu. Tryck på Hitta länkmöjligheter.</li>'}</ul>`;
   $("#kommersiellToggle").addEventListener("change", async (e) => {
     try { await api(`/api/seokarta/sida/${id}/kommersiell`, { kommersiell: e.target.checked }); await loadSeo(); valjNod(id); }
     catch (err) { toast(err.message); }
@@ -1369,6 +1411,172 @@ $("#aiBtn").addEventListener("click", async () => {
     await loadSeo();
   } catch (err) { toast(err.message); }
   finally { btn.textContent = "Föreslå nya artiklar"; btn.disabled = false; }
+});
+
+/* ---------- Länkförslag ---------- */
+const LANK_STATUS = {
+  vantar_pa_publicering: "väntar på publicering", ny: "Ny", godkand: "Godkänd", avvisad: "Avvisad", verkstalld: "Tillagd på sajten",
+  simulerad: "Simulerad", konflikt: "Konflikt", fel: "Fel", aterstalld: "Återställd",
+};
+const lank = { data: null, filter: "ny", valda: new Set() };
+
+async function loadLinks() {
+  try { lank.data = await api("/api/lankforslag"); } catch (err) { toast(err.message); return; }
+  const lage = lank.data.lage;
+  $("#linkMode").className = `link-mode ${lage}`;
+  $("#linkMode").textContent = lage === "skarp"
+    ? "Skarpt läge: Uppdatera sajten skriver godkända länkar till de publicerade artiklarna på klimathemmet.se."
+    : `Läge: ${lage}. Uppdatera sajten simulerar ändringarna och kontrollerar dem mot WordPress om det är anslutet, men skriver ingenting till sajten.`;
+  const finns = new Set(lank.data.forslag.map((f) => f.id));
+  lank.valda.forEach((id) => { if (!finns.has(id)) lank.valda.delete(id); });
+  $("#aiLinksBtn").disabled = !seo.data?.ai;
+  $("#aiLinksBtn").title = seo.data?.ai ? "" : "Kräver ANTHROPIC_API_KEY på servern";
+  renderLankforslag();
+}
+
+function synligaForslag() {
+  const f = lank.data?.forslag || [];
+  if (lank.filter === "ny") return f.filter((x) => ["ny", "konflikt", "fel"].includes(x.status));
+  if (lank.filter === "godkand") return f.filter((x) => x.status === "godkand");
+  return f.filter((x) => ["verkstalld", "simulerad", "vantar_pa_publicering"].includes(x.status));
+}
+
+function forhandsHtml(f, efter = true) {
+  const i = f.stycke.indexOf(f.ankartext);
+  if (i < 0) return esc(f.stycke);
+  const ank = esc(f.ankartext);
+  return esc(f.stycke.slice(0, i)) + (efter ? `<mark class="ny" title="${esc(f.mal_url)}">${ank}</mark>` : ank) + esc(f.stycke.slice(i + f.ankartext.length));
+}
+
+function renderLankforslag() {
+  const lista = synligaForslag();
+  const kanMarkeras = lank.filter !== "ovriga";
+  $("#checkAll").parentElement.hidden = !kanMarkeras || !lista.length;
+  $("#checkAll").checked = kanMarkeras && lista.length > 0 && lista.every((f) => lank.valda.has(f.id));
+  $("#linkList").innerHTML = lista.length ? lista.map((f) => `
+    <li class="lf${lank.valda.has(f.id) ? " markerad" : ""}" data-id="${f.id}">
+      ${kanMarkeras ? `<input type="checkbox" class="lf-check" data-valj="${f.id}" ${lank.valda.has(f.id) ? "checked" : ""} aria-label="Markera förslaget">` : "<span></span>"}
+      <div class="lf-rubrik"><b>${esc(f.kalla_titel)}</b> → <b>${esc(f.mal_titel || f.mal_artikel || f.mal_url)}</b></div>
+      <div class="lf-preview">${forhandsHtml(f)}</div>
+      <div class="lf-meta">
+        <span class="tag ${f.ursprung === "ai" ? "tag-ai" : "tag-warn"}">${f.ursprung === "ai" ? "AI-förslag" : "Beräknat"}</span>
+        <span>Ankartext: ”${esc(f.ankartext)}”</span>
+        <span>${esc(LANK_STATUS[f.status] || f.status)}</span>
+      </div>
+      ${f.motivering ? `<div class="lf-meta">${esc(f.motivering)}</div>` : ""}
+      ${f.fel ? `<div class="lf-fel">${esc(f.fel)}</div>` : ""}
+      ${["ny", "konflikt", "fel"].includes(f.status) ? `<div class="lf-knappar">
+        <button class="btn btn-ghost btn-sm" type="button" data-lf="redigera" data-id="${f.id}">Redigera ankartext</button>
+        <button class="btn btn-ghost btn-sm btn-danger" type="button" data-lf="avvisa" data-id="${f.id}">Avvisa</button>
+        <button class="btn btn-primary btn-sm" type="button" data-lf="godkann" data-id="${f.id}">Godkänn</button>
+      </div>` : f.status === "godkand" ? `<div class="lf-knappar"><button class="btn btn-ghost btn-sm" type="button" data-lf="aterkalla" data-id="${f.id}">Ångra godkännande</button></div>` : ""}
+    </li>`).join("") : `<li class="pub-empty">${lank.filter === "ny" ? "Inga nya förslag. Tryck på Hitta länkmöjligheter eller Låt AI föreslå länkar." : lank.filter === "godkand" ? "Inga godkända förslag väntar." : "Ingen historik ännu."}</li>`;
+  const valda = [...lank.valda];
+  const godkanda = (lank.data?.forslag || []).filter((f) => f.status === "godkand");
+  $("#approveLinksBtn").disabled = !valda.length || lank.filter !== "ny";
+  $("#rejectLinksBtn").disabled = !valda.length || lank.filter === "ovriga";
+  $("#applyLinksBtn").disabled = !godkanda.length;
+  $("#applyLinksBtn").textContent = godkanda.length ? `Uppdatera sajten (${godkanda.length})` : "Uppdatera sajten";
+  const andr = lank.data?.andringar || [];
+  const kanAterstalla = lank.data?.lage === "skarp";
+  $("#changeList").innerHTML = (andr.length ? andr.map((a) => `<li><strong>${esc(a.titel)}</strong>
+      <span>${a.forslag_ids.length} länk${a.forslag_ids.length === 1 ? "" : "ar"} · ${a.status === "aterstalld" ? "återställd" : "tillagd"}</span>
+      <time>${formatTid(a.tid)}</time>
+      ${a.status === "verkstalld" && kanAterstalla ? `<button class="btn btn-ghost btn-sm" type="button" data-aterstall="${a.id}">Återställ</button>` : ""}</li>`).join("") : "<li class=\"pub-empty\">Inga ändringar har gjorts på sajten.</li>")
+    + (lank.data?.logg || []).slice(0, 15).map((h) => `<li><strong>${esc(HANDLING_NAMN[h.handling] || h.handling)}</strong><q>${esc(h.kommentar || "")}</q><time>${formatTid(h.tid)}</time></li>`).join("");
+}
+
+$$("[data-lankfilter]").forEach((b) => b.addEventListener("click", () => {
+  lank.filter = b.dataset.lankfilter;
+  lank.valda.clear();
+  $$("[data-lankfilter]").forEach((x) => x.classList.toggle("active", x === b));
+  renderLankforslag();
+}));
+$("#checkAll").addEventListener("change", (e) => {
+  synligaForslag().forEach((f) => { if (e.target.checked) lank.valda.add(f.id); else lank.valda.delete(f.id); });
+  renderLankforslag();
+});
+$("#linkList").addEventListener("change", (e) => {
+  const id = Number(e.target.dataset.valj);
+  if (!id) return;
+  if (e.target.checked) lank.valda.add(id); else lank.valda.delete(id);
+  renderLankforslag();
+});
+$("#linkList").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-lf]");
+  if (!b) return;
+  const id = Number(b.dataset.id);
+  try {
+    if (b.dataset.lf === "godkann") await api("/api/lankforslag/godkann", { ids: [id] });
+    if (b.dataset.lf === "avvisa") await api("/api/lankforslag/avvisa", { ids: [id] });
+    if (b.dataset.lf === "aterkalla") await api("/api/lankforslag/aterkalla", { ids: [id] });
+    if (b.dataset.lf === "redigera") {
+      const f = lank.data.forslag.find((x) => x.id === id);
+      const ny = await askComment({ title: "Redigera ankartext", ok: "Spara", required: true,
+        text: `Ankartexten måste stå ordagrant i stycket: ”${f.stycke}”` });
+      if (!ny) return;
+      await api(`/api/lankforslag/${id}`, { ankartext: ny }, "PATCH");
+      toast("Ankartexten är ändrad");
+    }
+    lank.valda.delete(id);
+    await loadSeo();
+  } catch (err) { toast(err.message); }
+});
+$("#approveLinksBtn").addEventListener("click", async () => {
+  try {
+    const r = await api("/api/lankforslag/godkann", { ids: [...lank.valda] });
+    toast(`${r.godkanda} förslag godkända. Sajten ändras först när du väljer Uppdatera sajten.`);
+    lank.valda.clear();
+    await loadSeo();
+  } catch (err) { toast(err.message); }
+});
+$("#rejectLinksBtn").addEventListener("click", async () => {
+  if (!confirm(`Avvisa ${lank.valda.size} förslag?`)) return;
+  try { await api("/api/lankforslag/avvisa", { ids: [...lank.valda] }); lank.valda.clear(); await loadSeo(); } catch (err) { toast(err.message); }
+});
+
+// Uppdatera sajten: visar exakt vad som ändras och kräver en bekräftelse.
+$("#applyLinksBtn").addEventListener("click", () => {
+  const godkanda = lank.data.forslag.filter((f) => f.status === "godkand");
+  const skarp = lank.data.lage === "skarp";
+  $("#applyText").textContent = skarp
+    ? `${godkanda.length} länk${godkanda.length === 1 ? "" : "ar"} läggs till i publicerade artiklar. Bara den markerade texten görs till en länk; resten av artikeln lämnas orörd. Har en artikel ändrats i WordPress sedan kartläggningen hoppas den över. Alla ändringar kan återställas.`
+    : `Läge: ${lank.data.lage}. Ändringarna kontrolleras men skrivs inte till sajten.`;
+  $("#applyList").innerHTML = godkanda.map((f) => `<li><div class="vag">${esc(f.kalla_titel)} → ${esc(f.mal_url)}</div>${forhandsHtml(f)}</li>`).join("");
+  $("#applyConfirm").checked = false;
+  $("#applyOk").disabled = true;
+  $("#applyOk").textContent = skarp ? "Uppdatera sajten" : "Simulera";
+  $("#applyDialog").showModal();
+});
+$("#applyConfirm").addEventListener("change", (e) => { $("#applyOk").disabled = !e.target.checked; });
+$("#applyDialog").addEventListener("close", async () => {
+  if ($("#applyDialog").returnValue !== "ok" || !$("#applyConfirm").checked) return;
+  const ids = lank.data.forslag.filter((f) => f.status === "godkand").map((f) => f.id);
+  try {
+    const r = await api("/api/lankforslag/verkstall", { ids, bekraftad: true });
+    const delar = [];
+    if (r.verkstallda) delar.push(`${r.verkstallda} tillagda på sajten`);
+    if (r.simulerade) delar.push(`${r.simulerade} simulerade`);
+    if (r.konflikter) delar.push(`${r.konflikter} konflikter`);
+    if (r.fel) delar.push(`${r.fel} fel`);
+    toast(delar.join(", ") || "Inget att göra");
+    await loadSeo();
+  } catch (err) { toast(err.message); }
+});
+$("#changeList").addEventListener("click", async (e) => {
+  const id = e.target.dataset.aterstall;
+  if (!id || !confirm("Ta bort studions länkar i artikeln igen? Senare manuella ändringar behålls.")) return;
+  try { const r = await api(`/api/lankandringar/${id}/aterstall`, {}); toast(r.resultat); await loadSeo(); } catch (err) { toast(err.message); }
+});
+$("#calcLinksBtn").addEventListener("click", async () => {
+  try { const r = await api("/api/lankforslag/berakna", {}); toast(`${r.nya} nya förslag`); await loadSeo(); } catch (err) { toast(err.message); }
+});
+$("#aiLinksBtn").addEventListener("click", async () => {
+  const btn = $("#aiLinksBtn");
+  btn.disabled = true; btn.textContent = "AI läser artiklarna…";
+  try { const r = await api("/api/lankforslag/ai", {}); toast(`${r.nya} nya AI-förslag`); await loadSeo(); }
+  catch (err) { toast(err.message); }
+  finally { btn.textContent = "Låt AI föreslå länkar"; btn.disabled = false; }
 });
 
 /* ---------- Start ---------- */

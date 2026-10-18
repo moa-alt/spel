@@ -449,14 +449,30 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
 #graph circle, #graph rect { vector-effect: non-scaling-stroke; }
 #graph .nod { cursor: pointer; }
 #graph .nod.dold { opacity: .12; }
-#graph .nod.vald > :first-child { stroke: var(--text); stroke-width: 3; }
+#graph .nod.vald .form { stroke: var(--text); stroke-width: 3.5; }
+#graph .form { stroke: #fff; stroke-width: 1.5; }
+#graph .form.pelare { stroke: #193D2D; stroke-width: 3; }
+#graph .form.utan { stroke: #1C2B23; stroke-width: 1.8; stroke-dasharray: 3 2; }
+#graph .form.fa { stroke: #1C2B23; stroke-width: 1.8; stroke-dasharray: 1 2.2; }
+#graph .bruten { fill: #A2443C; font-weight: 700; stroke: var(--surface-2); paint-order: stroke; }
+#graph .pilspets { fill: #B9B2A2; }
+#graph .pilspets.aktiv { fill: var(--brand); }
 #graph text { fill: var(--text); paint-order: stroke; stroke: var(--surface-2); pointer-events: none; }
 /* Nodfärger kontrollerade för färgblindhet; formen och kanten är en extra kodning. */
 .n-pelare { fill: #2A7A52; stroke: #fff; stroke-width: 2; }
 .n-stod { fill: #7FB069; stroke: #fff; stroke-width: 1.5; }
 .n-kategori { fill: #3E6DB5; stroke: #fff; stroke-width: 1.5; }
 .n-foraldralos { fill: #C46A1F; stroke: #7A3E0C; stroke-width: 1.5; stroke-dasharray: 2 1.5; }
-.legend .n-pelare { stroke: none; }
+.legends { display: grid; gap: 8px; }
+.legend-status { font-size: 12px; }
+.l-form { fill: #C9C4B6; stroke: #fff; stroke-width: 1.2; }
+.l-form.l-pelare { stroke: #193D2D; stroke-width: 2.4; }
+.l-form.l-utan { stroke: #1C2B23; stroke-dasharray: 2.5 1.6; }
+.l-form.l-fa { stroke: #1C2B23; stroke-dasharray: 1 1.8; }
+.l-x { color: #A2443C; font-weight: 700; font-size: 15px; line-height: 1; }
+.l-pil { stroke: #B9B2A2; stroke-width: 1.5; }
+.l-pilspets { fill: #B9B2A2; }
+.legend .dot { width: 11px; height: 11px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px var(--border); }
 .graph-tip { position: absolute; pointer-events: none; background: var(--text); color: #fff; padding: 8px 10px; border-radius: 8px; font-size: 12px; max-width: 240px; line-height: 1.4; z-index: 2; }
 .graph-help { font-size: 12px; margin: 8px 2px 0; }
 .seo-detail h3 { font-family: var(--font-display); font-weight: 500; font-size: 21px; margin: 0 0 6px; line-height: 1.25; }
@@ -504,6 +520,42 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
 #linksPlan { margin-top: 14px; font-size: 14px; }
 #linksPlan ul { margin: 6px 0 0; padding-left: 18px; }
 
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.section-head .card-title { margin: 0; }
+.section-head .actions { flex-wrap: wrap; }
+.link-mode { font-size: 13px; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.link-mode.simulering, .link-mode.utkast { background: var(--brand-soft); color: var(--brand); }
+.link-mode.skarp { background: var(--warn-soft); color: var(--warn); }
+.link-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; }
+.link-toolbar .seg { display: inline-flex; }
+.link-toolbar .actions { margin-left: auto; flex-wrap: wrap; }
+.check-all { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; min-height: 40px; cursor: pointer; }
+.check-all input, .lf-check { width: 20px; height: 20px; accent-color: var(--brand); margin: 0; }
+.link-forslag { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.lf { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; }
+.lf.markerad { border-color: var(--brand); background: color-mix(in srgb, var(--brand-soft) 35%, var(--surface)); }
+.lf-check { margin-top: 3px; }
+.lf-rubrik { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.lf-rubrik b { font-weight: 600; }
+.lf-preview { grid-column: 2; font-size: 14px; line-height: 1.6; background: var(--surface-2); border-radius: 10px; padding: 10px 12px; margin: 6px 0 2px; }
+.lf-preview mark { background: none; color: var(--brand); text-decoration: underline; text-underline-offset: 3px; font-weight: 600; }
+.lf-preview .ny { background: var(--brand-soft); border-radius: 4px; padding: 0 2px; }
+.lf-meta { grid-column: 2; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.lf-fel { grid-column: 2; font-size: 13px; color: var(--bad); }
+.lf-knappar { grid-column: 2; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.link-history { margin-top: 16px; }
+.link-history summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 6px 0; }
+.link-history .history { margin-top: 10px; }
+.dialog-wide { max-width: 100%; }
+.apply-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; max-height: 45dvh; overflow: auto; }
+.apply-list li { font-size: 14px; line-height: 1.55; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.apply-list .vag { font-size: 12px; color: var(--muted); margin-bottom: 4px; overflow-wrap: anywhere; }
+.apply-list mark { background: var(--brand-soft); color: var(--brand); font-weight: 600; text-decoration: underline; padding: 0 2px; border-radius: 4px; }
+.dot-inline { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.rek { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.rek li { padding: 8px 10px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); overflow-wrap: anywhere; }
+.rek li.beraknad { background: var(--surface-2); color: var(--text); }
+
 /* Pekskärmar: dra-och-släpp fungerar inte, så pilarna används i stället. */
 @media (hover: hover) and (pointer: fine) {
   .q-handle { display: block; }
@@ -536,6 +588,8 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
   #graph { height: 520px; }
   .problem-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .forslag { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .seo-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .dialog-wide { width: min(760px, calc(100% - 48px)); }
   .cal-day { min-height: 84px; }
   .cal-ev .t { display: inline; }
   .pub-item { grid-template-columns: 1fr auto; align-items: center; }

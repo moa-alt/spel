@@ -15,7 +15,7 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 | 3b | **Ny design och mobilanpassning:** skandinaviskt ljust tema, mobile-first, granskningsvy för mobil, godkännande med bekräftelse | ✅ |
 | 6–7 | **Molndrift och publicering:** inloggning med sessioner, HTTPS, schemaläggare på servern (en artikel per dag, svensk tid), kalender, paus, ändra datum, skydd mot dubbelpublicering och ändrat innehåll, WordPress-klient och tilläggsplugin, nattliga säkerhetskopior, publiceringslogg, Docker och Fly.io. Se [DRIFT.md](DRIFT.md). | ✅ Förberett, inte driftsatt |
 | 8 | **SEO-karta och internlänkar (del A–C):** kartläggning av sajten via REST API, interaktiv karta med ämneskluster och pelarsidor, filter, verifierade problem, beräknade bedömningar, AI-förslag på nya artiklar som läggs i kön, verifierade internlänkar i nya artiklar | ✅ |
-| 9 | **Internlänkar del D:** inkommande länkar i publicerade artiklar med godkännande, förhandsgranskning, ändringshistorik och återställning; omkartläggning efter publicering | Nästa |
+| 9 | **Avancerad internlänkning:** klusterfärger och riktningspilar i kartan, huvudnyckelord, länkförslag (beräknade och AI) med exakt placering, godkännande en och en eller flera samtidigt, förhandsgranskning, uppdatering av publicerade artiklar med konfliktskydd, ändringshistorik och återställning, inkommande förslag för nya artiklar, omkartläggning efter publicering | ✅ |
 
 ## SEO-karta
 
@@ -36,6 +36,35 @@ Fliken **SEO-karta** visar hur klimathemmet.se hänger ihop.
    - Efter genereringen tas alla länkar till andra adresser bort, och varje adress länkas högst en gång.
    - SEO-fliken i editorn visar artikelns internlänkar, om målsidorna finns och vilka befintliga artiklar som föreslås länka hit.
    - Inga publicerade artiklar ändras. Det kommer i del D, och då bara efter ditt godkännande.
+
+### Länkförslag och uppdatering av publicerade artiklar
+
+**Förslagen.** Under *SEO-karta → Länkförslag* finns två sätt att få fram förslag:
+- **Hitta länkmöjligheter** (ingen AI) letar upp stycken som redan nämner en sidas huvudnyckelord. Sidor som behöver länkar mest prioriteras: isolerade sidor, sidor med få inkommande länkar, pelarsidor och kommersiella sidor.
+- **Låt AI föreslå länkar** låter Claude läsa källartiklarnas stycken och föreslå högst tre kontextuella länkar per artikel.
+
+**Kontroller innan ett förslag visas:**
+- Ankartexten står ordagrant i stycket, som hela ord. "ventilation" inuti "FTX-ventilation" räknas alltså inte.
+- Målsidan finns på sajten.
+- Källartikeln länkar inte redan dit, och texten ingår inte i en befintlig länk.
+- Allmänna ankartexter som "läs mer" stoppas. Samma ankartext till samma mål får förekomma högst två gånger.
+
+**Godkännande.** Varje förslag visar källa, mål, ankartext, motivering och stycket med den blivande länken markerad. Du kan godkänna, avvisa eller redigera ankartexten för ett förslag i taget, eller markera flera och godkänna dem samtidigt. **Ett godkännande ändrar ingenting på sajten.**
+
+**Uppdatera sajten.** Den här knappen visar exakt vilka ändringar som görs, och du måste kryssa i en bekräftelse innan något händer. Bara i publiceringsläget `skarp` skrivs ändringarna till sajten; i andra lägen simuleras de. Så här går det till för varje artikel:
+1. Den aktuella versionen hämtas från WordPress.
+2. Har artikeln ändrats sedan kartläggningen hoppas den över som *konflikt*, så att manuella redigeringar aldrig skrivs över.
+3. Bara ankartexten i rätt stycke görs till en länk, och resten av innehållet lämnas tecken för tecken orört. Rubriker och befintliga länkar rörs aldrig.
+4. Ändringen kontrolleras efteråt och sparas med före- och efterversion.
+
+**Återställning.** Under *Ändringshistorik och återställning* tar du bort studions länkar igen. Har artikeln inte rörts sedan dess återställs exakt den tidigare versionen. Har någon redigerat den efteråt tas bara studions länkar bort, och redigeringarna behålls.
+
+**Nya artiklar.**
+- När en artikel genereras föreslås befintliga artiklar som kan länka till den. Förslagen visas i editorns SEO-flik.
+- De kan godkännas först när artikeln är publicerad, eftersom länken annars skulle peka på en sida som inte finns.
+- Efter en publicering kartläggs sajten om automatiskt.
+
+**Huvudnyckelord.** I detaljvyn visas varje sidas huvudnyckelord och varifrån det kommer: från AI Studio, från SEO-pluginets fokusnyckelord eller uppskattat från titeln. Fokusnyckelordet syns bara om tilläggspluginet (version 1.1) är installerat och kartläggningen görs inloggad.
 
 ### Kontrollera resultatet
 
@@ -207,6 +236,7 @@ app/
   wordpress.py     WordPress REST API-klient
   sajtkarta.py     Kartläggning av sajten och länkanalys
   seo_ai.py        AI-förslag och kontroll av internlänkar
+  lankforslag.py   Länkförslag, godkännande, uppdatering av sajten och återställning
   planering.py     CSV-import och kontroll av liknande sökord
   sanitize.py      Rensar AI:ns HTML med en tillåtelselista
   demo.py          Demoartikel när ingen API-nyckel finns

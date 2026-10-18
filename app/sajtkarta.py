@@ -69,6 +69,9 @@ class KartFel(Exception):
 def init() -> None:
     with db._conn() as c:
         c.executescript(SCHEMA)
+        # Tillagt i senare version: stycken (för exakt placering av länkförslag) och fokusnyckelord.
+        db.lagg_till_kolumn(c, "sajt_sidor", "stycken", "TEXT NOT NULL DEFAULT '[]'")
+        db.lagg_till_kolumn(c, "sajt_sidor", "fokus", "TEXT")
 
 
 # ---------- Hämtning ----------
@@ -82,6 +85,8 @@ class _LankParser(HTMLParser):
         self._href: str | None = None
         self._ankare: list[str] = []
         self._rubrik: list[str] | None = None
+        self.stycken: list[str] = []
+        self._stycke: list[str] | None = None
         self._dold = 0
 
     def handle_starttag(self, tag, attrs):
@@ -92,8 +97,15 @@ class _LankParser(HTMLParser):
             self._ankare = []
         elif tag in ("h2", "h3"):
             self._rubrik = []
+        if tag in ("p", "li") and self._stycke is None:
+            self._stycke = []
 
     def handle_endtag(self, tag):
+        if tag in ("p", "li") and self._stycke is not None:
+            text = " ".join("".join(self._stycke).split())
+            if len(text.split()) >= 6:
+                self.stycken.append(text)
+            self._stycke = None
         if tag in ("script", "style"):
             self._dold = max(0, self._dold - 1)
         elif tag == "a" and self._href is not None:
@@ -111,13 +123,22 @@ class _LankParser(HTMLParser):
             self._ankare.append(data)
         if self._rubrik is not None:
             self._rubrik.append(data)
+        if self._stycke is not None:
+            self._stycke.append(data)
 
 
 def tolka_innehall(html: str) -> dict:
     p = _LankParser()
     p.feed(html or "")
     text = " ".join(" ".join(p.text).split())
-    return {"lankar": p.lankar, "rubriker": p.rubriker, "text": text, "ord": len(text.split())}
+    return {"lankar": p.lankar, "rubriker": p.rubriker, "text": text, "ord": len(text.split()), "stycken": p.stycken}
+
+
+def _fokus(o: dict) -> str | None:
+    """Fokusnyckelord från Yoast eller Rank Math, om tilläggspluginet gör fältet läsbart."""
+    meta = o.get("meta") or {}
+    varde = meta.get("_yoast_wpseo_focuskw") or (meta.get("rank_math_focus_keyword") or "").split(",")[0]
+    return varde.strip() or None if isinstance(varde, str) else None
 
 
 def _rensa_titel(text: str) -> str:
@@ -170,7 +191,7 @@ class Hamtare:
         return ut
 
     async def hamta(self) -> dict:
-        falt = "id,link,slug,title,content,modified,yoast_head_json"
+        falt = "id,link,slug,title,content,modified,modified_gmt,yoast_head_json,meta"
         poster = await self._alla("posts", falt + ",categories", {"status": "publish"})
         sidor = await self._alla("pages", falt, {"status": "publish"})
         kategorier = await self._alla("categories", "id,link,name,slug,count,description", {"hide_empty": "true"})
@@ -202,14 +223,15 @@ async def kartlagg(transport: httpx.AsyncBaseTransport | None = None) -> dict:
                     "titel": _rensa_titel(o.get("title", {}).get("rendered", "")), "text": innehall["text"][:20000],
                     "rubriker": innehall["rubriker"], "kategorier": o.get("categories", []),
                     "seo_titel": yoast.get("title"), "seo_beskrivning": yoast.get("description"),
-                    "ord": innehall["ord"], "andrad": o.get("modified"), "_lankar": innehall["lankar"],
+                    "ord": innehall["ord"], "andrad": o.get("modified_gmt") or o.get("modified"), "_lankar": innehall["lankar"],
+                    "stycken": innehall["stycken"][:200], "fokus": _fokus(o),
                 })
         for k in data["kategorier"]:
             sidor.append({
                 "wp_id": k["id"], "typ": "kategori", "url": k["link"], "sokvag": normalisera(k["link"], bas) or "/",
                 "titel": _rensa_titel(k.get("name", "")), "text": _rensa_titel(k.get("description", "")),
                 "rubriker": [], "kategorier": [k["id"]], "seo_titel": None, "seo_beskrivning": None,
-                "ord": 0, "andrad": None, "_lankar": [],
+                "ord": 0, "andrad": None, "_lankar": [], "stycken": [], "fokus": None,
             })
 
         kanda = {s["sokvag"] for s in sidor}
@@ -243,15 +265,18 @@ async def kartlagg(transport: httpx.AsyncBaseTransport | None = None) -> dict:
                 continue
             sedda.add(s["url"])
             varden = (s["wp_id"], s["typ"], s["sokvag"], s["titel"], s["text"], json.dumps(s["rubriker"], ensure_ascii=False),
-                      json.dumps(s["kategorier"]), s["seo_titel"], s["seo_beskrivning"], s["ord"], s["andrad"])
+                      json.dumps(s["kategorier"]), s["seo_titel"], s["seo_beskrivning"], s["ord"], s["andrad"],
+                      json.dumps(s["stycken"], ensure_ascii=False), s["fokus"])
             if s["url"] in befintliga:
                 s["id"] = befintliga[s["url"]]
                 c.execute("UPDATE sajt_sidor SET wp_id = ?, typ = ?, sokvag = ?, titel = ?, text = ?, rubriker = ?, kategorier = ?, "
-                          "seo_titel = ?, seo_beskrivning = ?, ord = ?, andrad = ? WHERE id = ?", (*varden, s["id"]))
+                          "seo_titel = ?, seo_beskrivning = ?, ord = ?, andrad = ?, stycken = ?, fokus = ? WHERE id = ?",
+                          (*varden, s["id"]))
             else:
                 s["id"] = c.execute(
                     "INSERT INTO sajt_sidor (wp_id, typ, sokvag, titel, text, rubriker, kategorier, seo_titel, seo_beskrivning, "
-                    "ord, andrad, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (*varden, s["url"])).lastrowid
+                    "ord, andrad, stycken, fokus, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (*varden, s["url"])).lastrowid
             id_for[s["sokvag"]] = s["id"]
         antal_lankar = 0
         for s in sidor:
@@ -358,10 +383,12 @@ def analysera() -> dict:
         sid = s["id"]
         kid = kluster_for[sid]
         foraldralos = s["typ"] != "kategori" and not (in_fran[sid] - {sid})
+        isolerad = foraldralos and not ut_till[sid]
         roll = "kategori" if s["typ"] == "kategori" else "pelare" if pelare.get(kid) == sid else "stod"
         noder.append({
             "id": sid, "titel": s["titel"], "url": s["url"], "typ": s["typ"], "kluster": kid, "roll": roll,
             "in": len(in_fran[sid]), "ut": len(ut_till[sid]), "trasiga": len(trasiga[sid]), "foraldralos": foraldralos,
+            "isolerad": isolerad, "fa_inkommande": s["typ"] != "kategori" and 1 <= len(in_fran[sid]) <= 2,
             "ord": s["ord"], "seo_titel": s["seo_titel"], "seo_beskrivning": s["seo_beskrivning"],
             "kommersiell": s["url"] in kommersiella,
         })
@@ -372,6 +399,8 @@ def analysera() -> dict:
     verifierat = {
         "trasiga_lankar": [{"id": sid, "titel": per_id[sid]["titel"], "lankar": l} for sid, l in trasiga.items()],
         "utan_inkommande": [{"id": n["id"], "titel": n["titel"]} for n in noder if n["foraldralos"]],
+        "isolerade": [{"id": n["id"], "titel": n["titel"]} for n in noder if n["isolerad"]],
+        "fa_inkommande": [{"id": n["id"], "titel": n["titel"], "in": n["in"]} for n in noder if n["fa_inkommande"]],
         "saknar_metabeskrivning": [{"id": s["id"], "titel": s["titel"]} for s in innehall
                                    if s["seo_beskrivning"] is not None and not s["seo_beskrivning"].strip()],
     }
@@ -402,8 +431,11 @@ def analysera() -> dict:
 
 
 def nod_detaljer(sid: int) -> dict | None:
+    from .lankforslag import for_sida, huvudnyckelord
+
     with db._conn() as c:
-        s = c.execute("SELECT id, typ, url, titel, rubriker, seo_titel, seo_beskrivning, ord FROM sajt_sidor WHERE id = ?", (sid,)).fetchone()
+        s = c.execute("SELECT id, wp_id, typ, url, titel, rubriker, seo_titel, seo_beskrivning, ord, fokus FROM sajt_sidor WHERE id = ?",
+                      (sid,)).fetchone()
         if not s:
             return None
         ut = [dict(r) for r in c.execute(
@@ -414,7 +446,12 @@ def nod_detaljer(sid: int) -> dict | None:
             "WHERE l.till_id = ? AND l.fran_id != ?", (sid, sid))]
     d = dict(s)
     d["rubriker"] = json.loads(d["rubriker"])
-    return {**d, "utgaende": ut, "inkommande": inn}
+    d["huvudnyckelord"], d["nyckelord_kalla"] = huvudnyckelord(d)
+    # Rekommendationer: väntande länkförslag där sidan är källa eller mål, och närliggande sidor utan länk.
+    forslag = for_sida(sid)
+    analys = analysera()
+    narliggande = [x for x in analys["beraknat"]["saknade_lankar"] if sid in (x["a"], x["b"])][:5]
+    return {**d, "utgaende": ut, "inkommande": inn, "forslag": forslag, "narliggande": narliggande}
 
 
 def satt_kommersiell(sid: int, kommersiell: bool) -> None:
