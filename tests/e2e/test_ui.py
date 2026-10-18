@@ -415,3 +415,77 @@ def test_saknade_sidor_och_skapa_artikel(sajt_server, browser, enhet):
     assert "/fukt-i-krypgrund/" in rad.text_content()
     assert fel == []
     ctx.close()
+
+
+@pytest.fixture(scope="module")
+def bild_server(tmp_path_factory):
+    # STUDIO_BILDTJANST=test: bilderna ritas lokalt, inga anrop till någon bildtjänst och inga kostnader.
+    proc, url = _starta(tmp_path_factory.mktemp("e2e-bilder"), STUDIO_BILDTJANST="test")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("enhet", ["iphone", "dator"])
+def test_bildfliken(bild_server, browser, enhet, tmp_path):
+    ctx = browser.new_context(**ENHETER[enhet])
+    page = ctx.new_page()
+    fel = []
+    page.on("pageerror", lambda e: fel.append(str(e)))
+    page.goto(bild_server)
+    sokord = f"värmepump {enhet}"
+    page.fill("#qHuvud", sokord)
+    page.click("#addForm button[type=submit]")
+    rad = page.locator(".q-item").filter(has=page.locator(".q-kw", has_text=sokord))
+    rad.locator("[data-act=generate]").click()
+    rad.locator(".s-granskas").wait_for()
+    rad.locator("[data-act=open]").click()
+    page.locator("#statusBadge.s-granskas").wait_for()
+    page.click(".tab[data-tab=images]")
+    assert page.locator("#images .img-card").count() == 4
+    assert "Huvudbild" in page.locator("#images .img-card").first.text_content()
+    assert page.locator("#imgGenAll").text_content() == "Skapa alla 4 bilder"
+
+    # Kostnaden visas först och inget skapas utan bekräftelse.
+    page.click("#imgGenAll")
+    page.locator("#imgCostDialog[open]").wait_for()
+    assert "testbilder" in page.text_content("#imgCostSumma")
+    assert page.locator("#imgCostOk").is_disabled()
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-13-bildkostnad")
+    page.click("#imgCostDialog button[value=cancel]")
+    assert page.locator("#images img").count() == 0
+    page.click("#imgGenAll")
+    page.check("#imgCostConfirm")
+    page.click("#imgCostOk")
+    page.locator("#images .img-thumb img").nth(3).wait_for(timeout=15000)
+    page.locator("#images .img-busy").first.wait_for(state="detached", timeout=15000)
+    assert page.locator("#images .img-file").count() == 4
+    assert all(".webp" in t for t in page.locator("#images .img-file").all_text_contents())
+    # Bilderna syns i förhandsvisningen: huvudbilden direkt, övriga med lazy loading.
+    ram = page.frame_locator("#previewFrame")
+    ram.locator("figure.kh-bild img").nth(3).wait_for(state="attached")
+    assert ram.locator("figure.kh-bild img").first.get_attribute("loading") is None
+    assert ram.locator("figure.kh-bild img").nth(1).get_attribute("loading") == "lazy"
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-14-bilder")
+
+    # Redigera alt-text och godkänn bild 1: den låses.
+    kort = page.locator("#images .img-card").first
+    kort.locator("[data-f=alt]").fill("Luft-vattenvärmepump står vid husvägg på en ljus svensk villatomt")
+    page.wait_for_timeout(900)
+    kort.locator("[data-godkand]").check()
+    page.locator("#images .img-card").first.locator("[data-bild-act=skapa][disabled]").wait_for()
+    assert page.locator("#images .img-card").first.locator("[data-f=alt]").input_value().startswith("Luft-vattenvärmepump")
+
+    # Byt bild 2 manuellt.
+    fil = tmp_path / "egen.png"
+    from PIL import Image
+
+    Image.new("RGB", (1200, 800), (180, 200, 190)).save(fil)
+    page.locator("#images .img-card").nth(1).locator("[data-bild-act=byt]").click()
+    page.set_input_files("#imgFile", str(fil))
+    page.locator("#images .img-card").nth(1).locator(".tag", has_text="Egen bild").wait_for()
+    assert "1200×800" in page.locator("#images .img-card").nth(1).locator(".img-file").text_content()
+    assert fel == []
+    ctx.close()

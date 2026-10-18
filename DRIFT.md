@@ -21,20 +21,21 @@ Priserna kommer från leverantörernas prissidor och prisjämförelser i oktober
 
 **Löpande kostnader utöver hostingen:**
 - **Claude (artikeltext):** ungefär 2–4 kr per artikel med standardinställningarna. Det debiteras av Anthropic per användning. Sätt en månadsgräns i Anthropic Console.
-- **Bilder:** tillkommer när bildgenereringen byggs.
+- **Bilder:** cirka 1,6 kr per artikel (fyra bilder med `gpt-image-2`, kvalitet medium). Det debiteras av bildtjänsten, och kostnaden visas i studion innan något skapas. Sätt en månadsgräns hos leverantören. Lägg in nyckeln med `scripts/fly_hemlighet.sh OPENAI_API_KEY`.
 - **Egen domän** som `studio.klimathemmet.se`: ingen extra kostnad om du redan har domänen. Certifikatet är gratis.
 
 ## Hur driften fungerar
 
 - **En maskin:** appen körs som en enda process på en maskin som alltid är igång (`auto_stop_machines = "off"`). Schemaläggaren finns i samma process och kontrollerar publiceringskön var 30:e sekund.
 - **Databas:** SQLite i `/data/studio.db`, på en permanent volym som finns kvar vid omstarter och uppdateringar.
+- **Bilder:** WebP-filer i `/data/bilder/`, på samma volym. En artikels fyra bilder tar cirka 1 MB, så volymen på 1 GB räcker till flera hundra artiklar. Utöka med `fly volumes extend` vid behov.
 - **Publicering:** sker på utsatt tid, svensk tid (Europe/Stockholm, med sommartid).
   - Precis före publicering kontrolleras att texten är exakt den du godkände.
   - Om servern startas om mitt i en publicering återupptas den, och redan skapade inlägg återanvänds, så att inget publiceras dubbelt.
   - En dag som passerar medan servern är nere eller publiceringen pausad publiceras inte i efterhand. Artikeln visas som *Missad* och schemaläggs på nytt av dig.
 - **Säkerhetskopior:**
   - Appen sparar en kopia av databasen varje natt i `/data/backups` och behåller 14.
-  - Fly.io tar dessutom dagliga ögonblicksbilder av hela volymen.
+  - Fly.io tar dessutom dagliga ögonblicksbilder av hela volymen, inklusive bilderna i `/data/bilder`. De nattliga databaskopiorna innehåller inte bildfilerna.
   - Du kan ladda ner en kopia när som helst i *Publicering → Säkerhetskopia*.
 - **Loggar:**
   - Publiceringsloggen i studion visar varje schemaläggning, publicering, paus och varje fel.

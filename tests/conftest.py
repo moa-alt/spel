@@ -14,6 +14,8 @@ KANSLIGA = (
     "STUDIO_USER", "STUDIO_PASSWORD", "STUDIO_PASSWORD_FILE", "STUDIO_SESSION_SECRET", "STUDIO_SESSION_SECRET_FILE",
     "STUDIO_MILJO", "STUDIO_PUBLICERING", "STUDIO_DB", "STUDIO_DATA", "STUDIO_SECRETS_DIR", "STUDIO_ENV_FIL",
     "STUDIO_CLAUDE_MODEL", "STUDIO_CLAUDE_EFFORT", "STUDIO_SCHEMALAGGARE",
+    "STUDIO_BILDTJANST", "STUDIO_BILD_MODELL", "STUDIO_BILD_KVALITET", "STUDIO_BILD_API_URL", "STUDIO_BILD_PRIS_USD",
+    "STUDIO_BILD_TIMEOUT", "STUDIO_USD_SEK",
 )
 for _namn in KANSLIGA:
     os.environ.pop(_namn, None)
@@ -50,7 +52,8 @@ def inget_natverk(monkeypatch):
 def miljo(tmp_path, monkeypatch):
     """Tom databas och datamapp, utan riktiga nycklar (demotext används) och utan schemaläggare."""
     for namn in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "WP_URL", "WP_USER", "WP_APP_PASSWORD", "STUDIO_PASSWORD",
-                 "STUDIO_USER", "STUDIO_SESSION_SECRET", "STUDIO_MILJO", "STUDIO_PUBLICERING"):
+                 "STUDIO_USER", "STUDIO_SESSION_SECRET", "STUDIO_MILJO", "STUDIO_PUBLICERING", "STUDIO_BILDTJANST",
+                 "STUDIO_BILD_PRIS_USD", "STUDIO_BILD_KVALITET"):
         monkeypatch.delenv(namn, raising=False)
     monkeypatch.setenv("STUDIO_SECRETS_DIR", str(tmp_path / "secrets"))
     monkeypatch.setenv("STUDIO_DATA", str(tmp_path))

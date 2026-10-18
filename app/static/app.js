@@ -143,15 +143,10 @@ const briefChips = chipInput($("#chipsBox"), $("#chips"), $("#chipInput"), "seku
 const queueChips = chipInput($("#qChipsBox"), $("#qChips"), $("#qChipInput"), "qSekundara");
 
 /* ---------- Generering ---------- */
-const STEG_TEXT = ["Analyserar sökintention", "Skriver artikeln", "Skapar 4 bilder (WebP)", "Optimerar metadata"];
+const STEG_TEXT = ["Analyserar sökintention", "Skriver artikeln", "Planerar 4 bildmotiv", "Optimerar metadata"];
 
 function resetProgress() {
   $$("#progress li").forEach((li, i) => { li.className = ""; li.textContent = STEG_TEXT[i]; });
-  if (!state.status.bilder) {
-    const bild = $('#progress li[data-step="2"]');
-    bild.classList.add("skipped");
-    bild.textContent = "Bilder – kopplas in senare";
-  }
 }
 
 // Visar förloppet för artikeln som är öppen i editorn.
@@ -270,8 +265,10 @@ function placeholderFigure(b) {
   </figure>`;
 }
 function imageFigure(b) {
+  // Förhandsvisningen är ett srcdoc-dokument; studions bildadresser görs därför absoluta.
+  const src = b.url.startsWith("/") ? location.origin + b.url : b.url;
   return `<figure class="kh-bild" data-bild="${b.id}" contenteditable="false">
-    <img src="${esc(b.url)}" alt="${esc(b.alt)}">
+    <img src="${esc(src)}" alt="${esc(b.alt)}"${b.bredd ? ` width="${b.bredd}" height="${b.hojd}"` : ""}${b.id === 1 ? "" : ' loading="lazy"'}>
     ${b.bildtext ? `<figcaption>${esc(b.bildtext)}</figcaption>` : ""}
   </figure>`;
 }
@@ -426,6 +423,7 @@ function renderChecks() {
   const sek = a.sekundara_sokord || [];
   const sekHits = sek.filter((s) => text.includes(s.toLowerCase())).length;
   const altOk = (a.bilder || []).every((b) => b.alt.trim().length > 5);
+  const klaraBilder = (a.bilder || []).filter((b) => b.fil).length;
   const ord = wordCount();
   const mt = a.meta_titel.length, md = a.meta_beskrivning.length;
 
@@ -440,6 +438,7 @@ function renderChecks() {
     [h2 >= 3 ? "ok" : "warn", `${h2} underrubriker (H2)`],
     [!sek.length || sekHits === sek.length ? "ok" : "warn", `Sekundära sökord i texten: ${sekHits}/${sek.length}`],
     [altOk ? "ok" : "bad", "Alla bilder har alt-text"],
+    [klaraBilder >= 4 ? "ok" : "warn", `${klaraBilder} av 4 bilder klara`],
     [ord >= 800 ? "ok" : "warn", `Textlängd ${ord} ord (rek. 800+)`],
   ];
   const lk = state.current?.lankkontroll;
@@ -454,28 +453,180 @@ function renderChecks() {
 }
 
 /* ---------- Bilder ---------- */
+const BILD_STATUSAR = ["utkast", "granskas"];
+const KALLA_NAMN = { ai: "AI-bild", manuell: "Egen bild", test: "Testbild" };
+const bild = { timer: null, valda: [], byt: null, vantande: false };
+
+function kanAndraBilder() {
+  return !!state.current && BILD_STATUSAR.includes(state.current.status) && !state.current.bilder_pagar;
+}
+function bildStatus(b) {
+  if (b.status === "genereras") return ["tag-ai", "Skapas…"];
+  if (b.fel && !b.fil) return ["tag-bad", "Misslyckades"];
+  if (!b.fil) return ["tag-warn", "Saknas"];
+  if (b.godkand) return ["tag-ok", "Godkänd"];
+  return ["tag-ok", KALLA_NAMN[b.kalla] || "Klar"];
+}
+
 function renderImages() {
-  $("#images").innerHTML = state.article.bilder.map((b, i) => `
-    <div class="img-card">
-      <div class="img-thumb"><span class="num">Bild ${b.id}</span>
-        ${b.url ? `<img src="${esc(b.url)}" alt="${esc(b.alt)}">` : "<span>Genereras i steg 3</span>"}
+  const info = state.current?.bildinfo || {};
+  const kan = kanAndraBilder();
+  const tjanst = !!state.status.bilder;
+  $("#images").innerHTML = state.article.bilder.map((b, i) => {
+    const inf = info[b.id] || {};
+    const [cls, statusText] = bildStatus(b);
+    const skapas = b.status === "genereras";
+    return `
+    <div class="img-card${skapas ? " busy" : ""}" data-id="${b.id}">
+      <div class="img-thumb"><span class="num">Bild ${b.id}${inf.roll === "huvudbild" ? " · Huvudbild" : ""}</span>
+        ${b.url ? `<img src="${esc(b.url)}" alt="${esc(b.alt)}" width="${b.bredd || 1536}" height="${b.hojd || 1024}">` : `<span>${skapas ? "" : "Ingen bild ännu"}</span>`}
+        ${skapas ? `<div class="img-busy"><span class="spinner" aria-hidden="true"></span>Skapar bilden…</div>` : ""}
       </div>
       <div class="img-body">
-        <label class="field"><span class="label">Alt-text</span>
-          <input type="text" data-i="${i}" data-f="alt" value="${esc(b.alt)}"></label>
+        <div class="img-meta"><span class="tag ${cls}">${statusText}</span><span class="muted">${esc(inf.avsnitt || "")}</span></div>
+        ${b.fel ? `<p class="img-fel" role="alert">${esc(b.fel)}${b.fil ? " Den tidigare bilden finns kvar." : ""}</p>` : ""}
+        ${b.inaktuell ? `<p class="img-hint">Texten har genererats om efter att bilden skapades. Motivet är uppdaterat; generera om bilden om den inte längre passar.</p>` : ""}
+        <label class="field"><span class="label">Alt-text <span class="counter${b.alt.length > 125 ? " warn" : ""}">${b.alt.length} tecken</span></span>
+          <input type="text" data-i="${i}" data-f="alt" value="${esc(b.alt)}" maxlength="1000"></label>
+        ${inf.alt_varning ? `<p class="img-hint">${esc(inf.alt_varning)}</p>` : ""}
         <label class="field"><span class="label">Bildtext <small>valfri</small></span>
-          <input type="text" data-i="${i}" data-f="bildtext" value="${esc(b.bildtext)}"></label>
-        <label class="field"><span class="label">Bildbeskrivning till AI</span>
-          <textarea rows="2" data-i="${i}" data-f="prompt">${esc(b.prompt)}</textarea></label>
+          <input type="text" data-i="${i}" data-f="bildtext" value="${esc(b.bildtext)}" maxlength="1000"></label>
+        <label class="field"><span class="label">Motiv till bildtjänsten <small>stil och förbud mot text läggs till automatiskt</small></span>
+          <textarea rows="3" data-i="${i}" data-f="prompt" maxlength="2000">${esc(b.prompt)}</textarea></label>
+        ${b.fil ? `<p class="muted img-file"><code>${esc(inf.filnamn || "")}</code> · ${b.bredd}×${b.hojd} · ${b.storlek_kb} kB</p>` : ""}
+        <label class="img-lock"><input type="checkbox" data-godkand="${b.id}" ${b.godkand ? "checked" : ""} ${kan && b.fil && !skapas ? "" : "disabled"}>
+          <span>Godkänd – genereras aldrig om automatiskt</span></label>
+        <div class="img-actions">
+          <button class="btn btn-ghost btn-sm" type="button" data-bild-act="skapa" data-id="${b.id}" ${kan && tjanst && !b.godkand && !skapas ? "" : "disabled"}>${b.fil ? "Generera om" : "Skapa bild"}</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-bild-act="byt" data-id="${b.id}" ${kan && !b.godkand && !skapas ? "" : "disabled"}>Byt bild…</button>
+        </div>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
+  renderBildHuvud();
 }
+
+function bildKandidater() {
+  const ej = state.article.bilder.filter((b) => !b.godkand && b.status !== "genereras");
+  const saknas = ej.filter((b) => !b.fil);
+  return saknas.length ? { ids: saknas.map((b) => b.id), text: `Skapa ${saknas.length === 4 ? "alla 4" : saknas.length} bilder` }
+    : { ids: ej.map((b) => b.id), text: ej.length ? `Generera om ej godkända (${ej.length})` : "Alla bilder är godkända" };
+}
+
+function renderBildHuvud() {
+  const s = state.current?.status;
+  const k = bildKandidater();
+  const btn = $("#imgGenAll");
+  btn.textContent = state.current?.bilder_pagar ? "Bilder skapas…" : k.text;
+  btn.disabled = !kanAndraBilder() || !state.status.bilder || !k.ids.length;
+  let text = "";
+  if (state.current && !BILD_STATUSAR.includes(s)) {
+    text = s === "godkand" || s === "schemalagd" ? "Bilderna är låsta eftersom artikeln är godkänd. Återkalla godkännandet om du vill ändra dem." : "Bilderna kan inte ändras i artikelns nuvarande status.";
+  } else if (!state.status.bilder) {
+    text = "Ingen bildtjänst är konfigurerad på servern (OPENAI_API_KEY). Du kan fortfarande byta bilder manuellt.";
+  } else if (state.current?.bilder_pagar) {
+    text = "Bilderna skapas på servern. Varje bild sparas så fort den är klar, även om du stänger fönstret.";
+  }
+  $("#imgNotice").hidden = !text;
+  $("#imgNotice").textContent = text;
+}
+
 $("#images").addEventListener("input", (e) => {
   const el = e.target.closest("[data-f]");
   if (!el) return;
   state.article.bilder[Number(el.dataset.i)][el.dataset.f] = el.value;
+  if (el.dataset.f === "alt") {
+    const c = el.closest(".field").querySelector(".counter");
+    c.textContent = `${el.value.length} tecken`;
+    c.classList.toggle("warn", el.value.length > 125);
+  }
   renderChecks(); renderPreviewSoon(); save();
 });
+// Uppdateringar från servern väntar tills du har lämnat fältet du skriver i.
+const skriverIBild = () => !!document.activeElement?.matches("#images input[type=text], #images textarea");
+$("#images").addEventListener("focusout", () => setTimeout(() => {
+  if (bild.vantande && !skriverIBild()) { bild.vantande = false; renderImages(); }
+}, 0));
+
+$("#images").addEventListener("change", async (e) => {
+  const cb = e.target.closest("[data-godkand]");
+  if (!cb) return;
+  try {
+    await api(`/api/artiklar/${state.current.id}/bilder/${cb.dataset.godkand}/godkann`, { godkand: cb.checked });
+    toast(cb.checked ? "Bilden är godkänd och låst" : "Bilden är upplåst");
+    await uppdateraBilder();
+  } catch (err) { cb.checked = !cb.checked; toast(err.message); }
+});
+
+$("#images").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bild-act]");
+  if (!b) return;
+  if (b.dataset.bildAct === "skapa") bestallBilder([Number(b.dataset.id)]);
+  if (b.dataset.bildAct === "byt") { bild.byt = Number(b.dataset.id); $("#imgFile").value = ""; $("#imgFile").click(); }
+});
+$("#imgGenAll").addEventListener("click", () => bestallBilder(bildKandidater().ids));
+
+async function bestallBilder(ids) {
+  if (!ids.length) return;
+  let k;
+  try { k = await api(`/api/bilder/kostnad?antal=${ids.length}`); } catch (err) { toast(err.message); return; }
+  bild.valda = ids;
+  const kr = k.total_sek.toLocaleString("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  $("#imgCostTitle").textContent = ids.length === 1 ? `Skapa bild ${ids[0]}` : `Skapa ${ids.length} bilder`;
+  $("#imgCostText").textContent = ids.some((id) => state.article.bilder.find((b) => b.id === id)?.fil)
+    ? "Nya bilder ersätter de nuvarande när de är klara. Misslyckas en bild finns den tidigare kvar."
+    : "Bilderna skapas på servern och sparas som optimerad WebP så fort de är klara.";
+  $("#imgCostAntal").textContent = `${ids.length} st (bild ${ids.join(", ")})`;
+  $("#imgCostModell").textContent = `${k.modell}, ${k.kvalitet}, ${k.storlek}`;
+  $("#imgCostSumma").textContent = k.total_usd ? `ca ${k.total_usd.toFixed(3)} USD (≈ ${kr} kr)` : "0 kr (testbilder)";
+  $("#imgCostConfirm").checked = false;
+  $("#imgCostOk").disabled = true;
+  $("#imgCostDialog").showModal();
+}
+$("#imgCostConfirm").addEventListener("change", (e) => { $("#imgCostOk").disabled = !e.target.checked; });
+$("#imgCostDialog").addEventListener("close", async () => {
+  if ($("#imgCostDialog").returnValue !== "ok" || !$("#imgCostConfirm").checked) return;
+  try {
+    const r = await api(`/api/artiklar/${state.current.id}/bilder/generera`, { bild_ids: bild.valda, bekraftad: true });
+    toast(`${r.startade.length === 1 ? "Bilden" : `${r.startade.length} bilder`} skapas nu`);
+    await uppdateraBilder();
+  } catch (err) { toast(err.message); }
+});
+
+$("#imgFile").addEventListener("change", async (e) => {
+  const fil = e.target.files[0];
+  if (!fil || !bild.byt) return;
+  if (fil.size > 15 * 1024 * 1024) { toast("Bilden är för stor (max 15 MB)"); return; }
+  try {
+    const res = await fetch(`/api/artiklar/${state.current.id}/bilder/${bild.byt}/ladda-upp`, {
+      method: "POST", headers: { "X-Studio": "1", "Content-Type": fil.type || "application/octet-stream" }, body: fil,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `Fel ${res.status}`);
+    toast(`Bild ${bild.byt} är bytt och sparad som WebP`);
+    await uppdateraBilder();
+  } catch (err) { toast(err.message); }
+});
+
+// Hämtar bildernas status från servern utan att skriva över texter du håller på att redigera.
+async function uppdateraBilder() {
+  const id = state.current?.id;
+  if (!id || !state.article) return;
+  let rec;
+  try { rec = await api(`/api/artiklar/${id}`); } catch { return; }
+  if (state.current?.id !== id || !rec.innehall || !state.article) return;
+  const lokala = Object.fromEntries(state.article.bilder.map((b) => [b.id, b]));
+  state.article.bilder = rec.innehall.bilder.map((b) => {
+    const l = lokala[b.id];
+    return l ? { ...b, alt: l.alt, bildtext: l.bildtext, prompt: l.prompt } : b;
+  });
+  Object.assign(state.current, { bildinfo: rec.bildinfo, bilder_pagar: rec.bilder_pagar, status: rec.status, historik: rec.historik });
+  if (skriverIBild()) bild.vantande = true;
+  else renderImages();
+  renderChecks(); renderPreview(); renderHistory();
+  clearTimeout(bild.timer);
+  if (rec.bilder_pagar || rec.innehall.bilder.some((b) => b.status === "genereras")) bild.timer = setTimeout(uppdateraBilder, 2000);
+}
 
 /* ---------- Flikar ---------- */
 $$(".tab").forEach((tab) => tab.addEventListener("click", () => {
@@ -774,6 +925,8 @@ async function openArticle(id, { keepView = false } = {}) {
   }
   renderReview();
   renderHistory();
+  clearTimeout(bild.timer);
+  if (rec.bilder_pagar || (rec.innehall?.bilder || []).some((b) => b.status === "genereras")) bild.timer = setTimeout(uppdateraBilder, 2000);
 }
 
 function renderReview() {
@@ -823,6 +976,9 @@ const HANDLING_NAMN = {
   fran_saknad_url: "Skapad för saknad adress", mal_publicerad: "Publicerad på planerad adress", mal_fel_adress: "Publicerad på fel adress", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
   andringar_begarda: "Ändringar begärda", avvisad: "Avvisad", aterstalld: "Återställd",
   godkannande_aterkallat: "Godkännande återkallat", godkannande_upphavt: "Godkännande upphävt",
+  bilder_bestallda: "Bilder beställda", bild_genererad: "Bild skapad", bild_misslyckad: "Bild misslyckades",
+  bild_bytt: "Bild bytt manuellt", bild_godkand: "Bild godkänd", bild_upplast: "Bild upplåst",
+  bild_uppladdad: "Bild uppladdad till WordPress",
 };
 function renderHistory() {
   const h = state.current?.historik || [];
@@ -866,6 +1022,7 @@ $("#approveBtn").addEventListener("click", () => {
     ["URL", `/${a.slug}`],
     ["SEO-kontroll", `${ok} av ${totalt} uppfyllda`],
     ["Bilder utan alt-text", String(saknarAlt)],
+    ["Färdiga bilder", `${(a.bilder || []).filter((b) => b.fil).length} av 4 (godkänns tillsammans med artikeln)`],
     ["Längd", `${wordCount().toLocaleString("sv-SE")} ord`],
   ];
   $("#approveSummary").innerHTML = rader.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");

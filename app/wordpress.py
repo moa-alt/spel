@@ -49,13 +49,15 @@ class WordPress:
     async def __aexit__(self, *exc):
         await self._klient.aclose()
 
-    async def _anrop(self, metod: str, path: str, **kw) -> httpx.Response:
+    async def _anrop(self, metod: str, path: str, tillat: tuple[int, ...] = (), **kw) -> httpx.Response:
         try:
             r = await self._klient.request(metod, path, **kw)
         except httpx.TimeoutException:
             raise WordPressFel("WordPress svarade inte i tid.")
         except httpx.HTTPError:
             raise WordPressFel("Kunde inte ansluta till WordPress.")
+        if r.status_code in tillat:
+            return r
         if r.status_code in (401, 403):
             raise WordPressFel("WordPress nekade åtkomst. Kontrollera användarnamn och applikationslösenord.")
         if r.status_code >= 400:
@@ -137,6 +139,11 @@ class WordPress:
             # Redan publicerat, till exempel om servern startades om mitt i en publicering.
             return befintlig
 
+        # Bilderna laddas upp till mediabiblioteket först nu, när artikeln faktiskt skickas.
+        from .bilder import ladda_upp_till_wordpress
+
+        media = await ladda_upp_till_wordpress(self, artikel)
+
         meta = {}
         if STUDIO_META in tillatna_meta:
             meta[STUDIO_META] = studio_id
@@ -149,12 +156,15 @@ class WordPress:
             "title": innehall["titel"],
             "slug": innehall["slug"],
             # Med tilläggspluginet laddas CSS:en som en fil; annars bäddas den in i blocket.
-            "content": wordpress_block(innehall, inline_css=not plugin),
+            "content": wordpress_block(innehall, inline_css=not plugin, media=media),
             "excerpt": innehall["meta_beskrivning"],
             "status": status,
         }
         if meta:
             data["meta"] = meta
+        if 1 in media:
+            # Huvudbilden blir också inläggets utvalda bild.
+            data["featured_media"] = media[1]["id"]
         if befintlig:
             post = (await self._anrop("POST", f"/wp/v2/posts/{befintlig['id']}", json=data)).json()
         else:
@@ -165,6 +175,22 @@ class WordPress:
         if kontroll.get("status") != status:
             raise WordPressFel(f"WordPress sparade inlägget med status {kontroll.get('status')} i stället för {status}.")
         return kontroll
+
+    # ---------- Mediabiblioteket ----------
+
+    async def ladda_upp_media(self, data: bytes, filnamn: str, alt: str, titel: str) -> dict:
+        r = await self._anrop("POST", "/wp/v2/media", content=data, headers={
+            "Content-Type": "image/webp", "Content-Disposition": f'attachment; filename="{filnamn}"'})
+        media = r.json()
+        return (await self._anrop("POST", f"/wp/v2/media/{media['id']}", json={"alt_text": alt, "title": titel})).json()
+
+    async def hamta_media(self, media_id: int) -> dict | None:
+        """Bilden i mediabiblioteket, eller None om den har tagits bort där."""
+        r = await self._anrop("GET", f"/wp/v2/media/{media_id}", tillat=(404, 410), params={"context": "edit"})
+        return None if r.status_code in (404, 410) else r.json()
+
+    async def uppdatera_media(self, media_id: int, data: dict) -> dict:
+        return (await self._anrop("POST", f"/wp/v2/media/{media_id}", json=data)).json()
 
     # ---------- Befintliga inlägg och sidor ----------
 

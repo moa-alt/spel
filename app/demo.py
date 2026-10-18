@@ -58,6 +58,7 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
 <!--BILD:1-->
 
 <h2 id="vad-ar">{e(sections[0][1])}</h2>
+<!--BILD:2-->
 <p>Det här är en <em>demotext</em> som visar hur artikeln kommer att se ut. När AI-genereringen är inkopplad ersätts den av en fullständig, sökordsoptimerad text som utgår från sökintentionen bakom <strong>{e(kw)}</strong>.</p>
 <p>Texten kommer att behandla de sekundära sökorden naturligt i löptexten och i underrubriker:</p>
 <ul>{sek_lista}</ul>
@@ -71,7 +72,6 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
 </div>
 
 <h2 id="fordelar">{e(sections[1][1])}</h2>
-<!--BILD:2-->
 <div class="kh-procon">
   <div class="kh-pro">
     <p class="kh-box-rubrik">Fördelar</p>
@@ -84,6 +84,7 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
 </div>
 
 <h2 id="kostnad">{e(sections[2][1])}</h2>
+<!--BILD:3-->
 <p>Priset varierar beroende på husets storlek och vilken lösning du väljer. Tabellen visar ungefärliga nivåer.</p>
 <div class="kh-tabell-wrap">
 <table class="kh-tabell">
@@ -102,7 +103,7 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
 </div>
 
 <h2 id="steg-for-steg">{e(sections[3][1])}</h2>
-<!--BILD:3-->
+<!--BILD:4-->
 <ol class="kh-steg">
   <li><strong>Inventera nuläget.</strong> Kontrollera hur det fungerar i dag och notera problem.</li>
   <li><strong>Jämför alternativ.</strong> Väg kostnad mot nytta och husets förutsättningar.</li>
@@ -117,29 +118,26 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
   <details><summary>Finns det bidrag eller avdrag?</summary><p>Ofta går det att använda ROT-avdrag för arbetskostnaden.</p></details>
 </div>
 
-<!--BILD:4-->
-
 <div class="kh-sammanfattning">
   <p class="kh-box-rubrik">Sammanfattning</p>
   <p>{e(kw_cap)} handlar om att hitta rätt lösning för just ditt hus. Utgå från nuläget, jämför alternativen och anlita certifierade installatörer.</p>
 </div>
 """.strip()
 
+    # (alt-text, motiv till bildtjänsten) för huvudbilden och de tre avsnitten.
     bildmotiv = [
-        f"Översiktsbild som illustrerar {kw}",
-        f"Detaljbild relaterad till {sek[0] if sek else kw}",
-        f"Hantverkare som arbetar med {kw}",
-        f"Trivsamt svenskt hem med gott inomhusklimat",
+        (f"Ljust skandinaviskt hem där {kw} bidrar till ett behagligt inomhusklimat",
+         f"Bright Scandinavian living room in a Swedish villa, showing the overall topic: {kw}"),
+        (f"Närbild som visar hur {sek[0] if sek else kw} fungerar i ett äldre svenskt hus",
+         f"Close-up of the relevant installation or building part for {sek[0] if sek else kw} in an older Swedish house"),
+        ("Husägare och hantverkare går igenom kostnader vid ett ljust köksbord",
+         "Homeowner and craftsman reviewing a quote with papers on a light wooden kitchen table, hands in focus"),
+        (f"Hantverkare arbetar steg för steg med {kw} i en svensk villa",
+         f"Craftsman working step by step on {kw} in a Swedish villa, seen from behind, natural daylight"),
     ]
     images = [
-        {
-            "id": i + 1,
-            "alt": f"{motiv}",
-            "bildtext": "",
-            "prompt": f"Fotorealistisk bild: {motiv}, skandinavisk miljö, naturligt ljus",
-            "url": None,
-        }
-        for i, motiv in enumerate(bildmotiv)
+        {"id": i + 1, "alt": alt, "bildtext": "", "prompt": prompt, "url": None}
+        for i, (alt, prompt) in enumerate(bildmotiv)
     ]
 
     meta_title = f"{kw_cap} – guide, kostnad & tips"

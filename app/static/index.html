@@ -317,7 +317,7 @@
         <ol class="progress" id="progress" hidden>
           <li data-step="0">Analyserar sökintention</li>
           <li data-step="1">Skriver artikeln</li>
-          <li data-step="2">Skapar 4 bilder (WebP)</li>
+          <li data-step="2">Planerar 4 bildmotiv</li>
           <li data-step="3">Optimerar metadata</li>
         </ol>
       </form>
@@ -445,8 +445,13 @@
 
         <!-- Bilder -->
         <section class="panel" data-panel="images">
-          <p class="muted panel-intro">Fyra bilder placeras i artikeln. Alt-texter och bildtexter kan redigeras här. Bildgenereringen kopplas in i ett senare steg.</p>
+          <div class="img-head">
+            <p class="muted panel-intro">En huvudbild efter introduktionen och tre bilder vid avsnitten, som optimerad WebP. Bilder skapas bara när du beställer dem, och kostnaden visas först. Godkända bilder genereras aldrig om automatiskt.</p>
+            <button class="btn btn-primary" id="imgGenAll" type="button">Skapa bilder</button>
+          </div>
+          <div class="notice" id="imgNotice" hidden></div>
           <div class="images" id="images"></div>
+          <input type="file" id="imgFile" accept="image/jpeg,image/png,image/webp" hidden>
         </section>
 
         <!-- HTML -->
@@ -457,7 +462,7 @@
 
         <!-- WordPress-kod -->
         <section class="panel" data-panel="code">
-          <p class="muted panel-intro">Den här koden läggs i ett <strong>Anpassad HTML</strong>-block i WordPress. CSS:en är inbäddad och scopad till <code>.kh-artikel</code>.</p>
+          <p class="muted panel-intro">Den här koden läggs i ett <strong>Anpassad HTML</strong>-block i WordPress. CSS:en är inbäddad och scopad till <code>.kh-artikel</code>. Bilderna läggs in med mediabibliotekets adresser först när artikeln skickas till WordPress.</p>
           <textarea id="codeOut" class="code" readonly spellcheck="false"></textarea>
         </section>
       </div>
@@ -507,6 +512,27 @@
       <div class="dialog-actions">
         <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Avbryt</button>
         <button class="btn btn-primary" id="createOk" value="ok" type="submit" disabled>Lägg till i artikelkön</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialog" id="imgCostDialog">
+    <form method="dialog">
+      <h2 id="imgCostTitle">Skapa bilder</h2>
+      <p class="muted" id="imgCostText"></p>
+      <dl class="img-cost">
+        <dt>Bilder</dt><dd id="imgCostAntal"></dd>
+        <dt>Modell</dt><dd id="imgCostModell"></dd>
+        <dt>Uppskattad kostnad</dt><dd id="imgCostSumma"></dd>
+      </dl>
+      <p class="muted img-cost-note">Uppskattningen bygger på priset per bild i serverns inställningar. Leverantören debiterar ditt konto direkt. Ingenting skickas till WordPress.</p>
+      <label class="confirm-check">
+        <input type="checkbox" id="imgCostConfirm">
+        <span>Jag godkänner den uppskattade kostnaden.</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit">Avbryt</button>
+        <button class="btn btn-primary" id="imgCostOk" value="ok" type="submit" disabled>Skapa bilder</button>
       </div>
     </form>
   </dialog>

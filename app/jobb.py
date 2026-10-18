@@ -8,7 +8,7 @@ import asyncio
 import html
 import logging
 
-from . import db, lankforslag, seo_ai
+from . import bilder, db, lankforslag, seo_ai
 from .ai_writer import GenereringsFel, generera_artikel
 from . import config
 from .demo import build_demo_article
@@ -29,7 +29,7 @@ def pagar(artikel_id: int) -> bool:
 
 def starta(artikel_id: int) -> bool:
     """Köar generering. Returnerar False om artikeln inte kan genereras just nu."""
-    if pagar(artikel_id):
+    if pagar(artikel_id) or bilder.pagar(artikel_id):
         return False
     if not db.byt_status(artikel_id, ("utkast", "granskas", "fel"), "genereras", fel=None):
         return False
@@ -70,6 +70,8 @@ async def _kor(artikel_id: int) -> None:
             # En artikel som skapats för en saknad adress måste publiceras just där.
             if artikel.get("mal_slug"):
                 resultat["slug"] = artikel["mal_slug"]
+            # Färdiga bilder behålls; ingen bild genereras om automatiskt när texten skrivs om.
+            resultat["bilder"] = bilder.behall_vid_omgenerering((artikel["innehall"] or {}).get("bilder", []), resultat["bilder"])
             resultat["html"], resultat["internlankar"] = seo_ai.kontrollera_lankar(
                 resultat["html"], {m["url"] for m in lankmal})
             db.byt_status(artikel_id, ("genereras",), "granskas", innehall=resultat, fel=None, andringar=None)

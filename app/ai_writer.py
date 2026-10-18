@@ -64,11 +64,13 @@ Avsluta med:
 <div class="kh-sammanfattning"><p class="kh-box-rubrik">Sammanfattning</p><p>…</p></div>
 
 # Bilder
-Artikeln har exakt fyra bilder. Placera markörerna <!--BILD:1-->, <!--BILD:2-->, <!--BILD:3--> och <!--BILD:4--> var för sig på egen rad i html, utspridda i artikeln: BILD:1 efter innehållsförteckningen, BILD:2 och BILD:3 i början av två olika avsnitt i mitten och BILD:4 före sammanfattningen.
+Artikeln har exakt fyra bilder. Placera markörerna <!--BILD:1-->, <!--BILD:2-->, <!--BILD:3--> och <!--BILD:4--> var för sig på egen rad i html:
+- BILD:1 är huvudbilden och står direkt efter innehållsförteckningen, före första h2.
+- BILD:2, BILD:3 och BILD:4 står direkt efter </h2> i tre olika avsnitt där en bild verkligen hjälper läsaren att förstå, i artikelns ordning. Inte i avsnittet med vanliga frågor.
 För varje bild i fältet bilder, i samma ordning:
-- alt: beskriver vad som syns på bilden, på svenska, 8–16 ord. Ta med huvud- eller sekundärsökord där det är naturligt.
+- alt: naturlig svensk mening som beskriver vad som faktiskt syns på bilden, 8–16 ord. Börja inte med "Bild på". Ta med huvud- eller sekundärsökord bara där det är naturligt.
 - bildtext: kort bildtext på svenska, eller tom sträng.
-- prompt: detaljerad beskrivning på engelska för en bildgenerator. Fotorealistisk redaktionell bild i skandinavisk miljö med naturligt ljus, utan text, logotyper eller vattenstämplar, och utan igenkännbara ansikten i närbild. Bilden ska visa något konkret och relevant för just det avsnittet.
+- prompt: detaljerad beskrivning på engelska av motivet för en bildgenerator. Välj motivet utifrån artikelns ämne och just det avsnittets innehåll: något konkret som en svensk villaägare känner igen (rätt typ av hus, rum, installation eller arbetsmoment). Huvudbilden visar ämnet i stort. Fotorealistisk, ljus redaktionell bild i skandinavisk miljö med naturligt ljus, utan text, logotyper eller vattenstämplar, och utan igenkännbara ansikten i närbild.
 """
 
 ARTIKEL_SCHEMA = {

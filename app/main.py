@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 
-from . import auth, config, db, jobb, lankforslag, publicering, saknade, sajtkarta, seo_ai
+from . import auth, bilder, config, db, jobb, lankforslag, publicering, saknade, sajtkarta, seo_ai
 from .planering import MAX_SEKUNDARA, CsvFel, liknande, normalisera_sokord, tolka_csv
 from .publicering import PubliceringsFel
 from .render import wordpress_block
@@ -40,6 +40,7 @@ async def lifespan(_app: FastAPI):
     seo_ai.init()
     lankforslag.init()
     saknade.init()
+    bilder.init()
     uppgift = asyncio.create_task(publicering.schemalaggare()) if config.settings.schemalaggare else None
     yield
     if uppgift:
@@ -155,7 +156,7 @@ def _med_extra(artikel: dict, lika: dict[int, list[dict]]) -> dict:
 
 @app.get("/api/status")
 def status():
-    return config.settings.status()
+    return config.settings.status() | {"bildkostnad": bilder.kostnad(1)}
 
 
 @app.post("/api/exportera")
@@ -252,6 +253,8 @@ def hamta_artikel(artikel_id: int):
     artikel["lankplan"] = seo_ai.lankplan(artikel_id)
     artikel["lankkontroll"] = seo_ai.lankkontroll((artikel["innehall"] or {}).get("html", ""))
     artikel["inkommande_forslag"] = lankforslag.for_artikel(artikel_id)
+    artikel["bildinfo"] = bilder.bildinfo(artikel["innehall"])
+    artikel["bilder_pagar"] = bilder.pagar(artikel_id)
     return artikel
 
 
@@ -294,13 +297,16 @@ def spara_innehall(artikel_id: int, article: Article):
     if artikel.get("mal_slug"):
         # Artikeln är skapad för en adress som befintliga artiklar redan länkar till.
         innehall["slug"] = artikel["mal_slug"]
-    if innehall == Article(**artikel["innehall"]).model_dump() | {
+    # Bildfiler, status och godkännanden ägs av servern; webbläsaren ändrar bara texterna.
+    innehall = bilder.sla_ihop_klient(innehall, artikel["innehall"])
+    if innehall == bilder.sla_ihop_klient(Article(**artikel["innehall"]).model_dump() | {
         "huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]
-    }:
+    }, artikel["innehall"]):
         return {"status": artikel["status"]}
     # En godkänd artikel som ändras måste godkännas igen innan den kan schemaläggas.
     ny_status = "granskas" if artikel["status"] == "godkand" else artikel["status"]
-    if not db.byt_status(artikel_id, (artikel["status"],), ny_status, innehall=innehall, godkand_at=None, godkand_hash=None):
+    if not db.byt_status(artikel_id, (artikel["status"],), ny_status, innehall=innehall, godkand_at=None, godkand_hash=None,
+                         sla_ihop=bilder.sla_ihop_klient):
         raise HTTPException(409, "Artikeln ändrades samtidigt. Ladda om och försök igen.")
     if artikel["status"] == "godkand":
         db.logga(artikel_id, "godkannande_upphavt", "Artikeln redigerades efter godkännandet")
@@ -312,6 +318,8 @@ async def generera(artikel_id: int):
     artikel = _hamta_eller_404(artikel_id)
     if artikel["status"] not in ("utkast", "granskas", "fel"):
         raise HTTPException(409, "Bara utkast, artiklar som väntar på granskning och artiklar med fel kan genereras.")
+    if bilder.pagar(artikel_id):
+        raise HTTPException(409, "Vänta tills bildgenereringen är klar innan du genererar om texten.")
     if not jobb.starta(artikel_id):
         raise HTTPException(409, "Artikeln genereras redan.")
     return {"status": "genereras"}
@@ -347,6 +355,11 @@ def godkann(artikel_id: int, body: Godkannande):
     if not body.bekraftad:
         raise HTTPException(400, "Godkännandet måste bekräftas.")
     artikel = _hamta_eller_404(artikel_id)
+    if bilder.pagar(artikel_id):
+        raise HTTPException(409, "Vänta tills bildgenereringen är klar innan du godkänner artikeln.")
+    # Artikelns färdiga bilder godkänns tillsammans med texten och genereras då aldrig om automatiskt.
+    if artikel["status"] == "granskas" and db.andra_innehall(artikel_id, bilder.markera_godkanda, ("granskas",)):
+        artikel = db.hamta(artikel_id)
     return _byt(artikel_id, ("granskas",), "godkand", "godkand", None,
                 "Bara artiklar som väntar på granskning kan godkännas.",
                 godkand_at=db.nu(), godkand_hash=db.innehall_hash(artikel["innehall"]))
@@ -387,9 +400,95 @@ def ta_bort(artikel_id: int):
     artikel = _hamta_eller_404(artikel_id)
     if artikel["status"] in LASTA:
         raise HTTPException(409, "Artikeln kan inte tas bort medan den genereras, är schemalagd eller publicerad.")
+    if bilder.pagar(artikel_id):
+        raise HTTPException(409, "Vänta tills bildgenereringen är klar.")
     db.ta_bort(artikel_id)
+    bilder.ta_bort_filer(artikel_id)
     db.logga(artikel_id, "borttagen", artikel["huvudsokord"])
     return Response(status_code=204)
+
+
+# ---------- Bilder ----------
+
+class Bildbestallning(BaseModel):
+    bild_ids: list[int] = Field(min_length=1, max_length=bilder.ANTAL)
+    bekraftad: bool = False
+
+
+class Bildgodkannande(BaseModel):
+    godkand: bool
+
+
+@app.get("/api/bilder/kostnad")
+def bildkostnad(antal: int = bilder.ANTAL):
+    return bilder.kostnad(max(1, min(antal, bilder.ANTAL)))
+
+
+@app.post("/api/artiklar/{artikel_id}/bilder/generera", status_code=202)
+async def generera_bilder(artikel_id: int, body: Bildbestallning):
+    """Beställer bilder. Kräver att kostnadsuppskattningen har visats och bekräftats."""
+    if not body.bekraftad:
+        raise HTTPException(400, "Bekräfta den uppskattade kostnaden innan bilderna skapas.")
+    artikel = _hamta_eller_404(artikel_id)
+    if not artikel["har_innehall"]:
+        raise HTTPException(409, "Artikeln har ingen text ännu. Generera texten först.")
+    if artikel["status"] not in bilder.BILD_STATUSAR:
+        raise HTTPException(409, "Bilder kan bara skapas för utkast och artiklar som väntar på granskning. "
+                                 "Återkalla godkännandet först om artikeln är godkänd.")
+    try:
+        startade = bilder.starta(artikel_id, sorted(set(body.bild_ids)))
+    except bilder.BildFel as e:
+        raise HTTPException(409, str(e))
+    k = bilder.kostnad(len(startade))
+    db.logga(artikel_id, "bilder_bestallda",
+             f"Bild {', '.join(map(str, startade))} · uppskattad kostnad ca {k['total_usd']} USD ({k['modell']}, {k['kvalitet']})")
+    return {"startade": startade, "kostnad": k}
+
+
+@app.post("/api/artiklar/{artikel_id}/bilder/{bild_id}/ladda-upp")
+async def byt_bild(artikel_id: int, bild_id: int, request: Request):
+    """Byter en bild mot en egen fil (JPEG, PNG eller WebP). Filen konverteras till optimerad WebP."""
+    data = await request.body()
+    if len(data) > bilder.MAX_UPPLADDNING:
+        raise HTTPException(413, "Bilden är för stor (max 15 MB).")
+    if not data:
+        raise HTTPException(400, "Välj en bildfil.")
+    artikel = _hamta_eller_404(artikel_id)
+    if artikel["status"] not in bilder.BILD_STATUSAR or bilder.pagar(artikel_id):
+        raise HTTPException(409, "Bilden kan inte bytas just nu. Bilder kan bara ändras för utkast och artiklar som "
+                                 "väntar på granskning, och inte medan bilder genereras.")
+    bild = next((b for b in (artikel["innehall"] or {}).get("bilder", []) if b["id"] == bild_id), None)
+    if bild is None:
+        raise HTTPException(404, "Bilden finns inte.")
+    if bild.get("godkand"):
+        raise HTTPException(409, "Bilden är godkänd. Lås upp den först om du vill byta den.")
+    try:
+        resultat = await asyncio.to_thread(bilder.spara_bild, artikel_id, bild_id, data, "manuell",
+                                           bilder.MIN_BREDD_UPPLADDNING)
+    except bilder.BildFel as e:
+        raise HTTPException(400, str(e))
+    db.logga(artikel_id, "bild_bytt", f"Bild {bild_id} byttes mot en egen bild")
+    return resultat
+
+
+@app.post("/api/artiklar/{artikel_id}/bilder/{bild_id}/godkann")
+def godkann_bild(artikel_id: int, bild_id: int, body: Bildgodkannande):
+    _hamta_eller_404(artikel_id)
+    if bilder.satt_godkand(artikel_id, bild_id, body.godkand) is None:
+        raise HTTPException(409, "Bilden kan inte ändras just nu. Bara färdiga bilder i utkast och artiklar som väntar "
+                                 "på granskning kan godkännas eller låsas upp.")
+    db.logga(artikel_id, "bild_godkand" if body.godkand else "bild_upplast", f"Bild {bild_id}")
+    return {"godkand": body.godkand}
+
+
+@app.get("/api/bilder/{artikel_id}/{fil}")
+def visa_bild(artikel_id: int, fil: str):
+    sokvag = bilder.sokvag(artikel_id, fil)
+    if sokvag is None or not sokvag.is_file():
+        raise HTTPException(404, "Bilden finns inte.")
+    # Filnamnet innehåller bildens kontrollsumma, så en adress visar alltid samma bild.
+    return FileResponse(sokvag, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 # ---------- Publicering ----------

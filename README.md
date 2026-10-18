@@ -9,8 +9,8 @@ En webbapp för SEO-produktion. Du anger ett huvudsökord och sekundära sökord
 | 1 | Gränssnitt, förhandsgranskning, redigering, SEO-kontroll, export | ✅ |
 | 2 | AI-genererad artikel utifrån sökintention (Claude) | ✅ |
 | 3 | **Artikelkö och granskning:** databas, CSV-import, ordning, generera alla, Godkänn/Begär ändringar/Avvisa, historik, varning för liknande sökord | ✅ |
-| 4 | Bilder: 4 AI-bilder → komprimerad WebP med beskrivande filnamn, generera om text eller bilder separat | Planerat |
-| 5 | WordPress: anslutning, kontroll av SEO-plugin och API-fält, utkast och publicering i Custom HTML-block, CSS via tilläggsplugin, testlägen (simulering/utkast) | ✅ (mediauppladdning kommer med bilderna) |
+| 4 | **Bilder:** 4 AI-bilder → optimerad WebP med beskrivande filnamn och alt-texter, Bild-flik, kostnad före generering, uppladdning till mediabiblioteket och utvald bild | ✅ |
+| 5 | WordPress: anslutning, kontroll av SEO-plugin och API-fält, utkast och publicering i Custom HTML-block, CSS via tilläggsplugin, testlägen (simulering/utkast) | ✅ |
 | 6 | Schemaläggning: startdatum, klockslag (Europe/Stockholm), ett godkänt inlägg per dag, `status=future` i WordPress, kalender, ändra datum, pausa, återkalla före publicering, skydd mot dubbelpublicering, kontroll att WordPress verkligen publicerat | Planerat |
 | 3b | **Ny design och mobilanpassning:** skandinaviskt ljust tema, mobile-first, granskningsvy för mobil, godkännande med bekräftelse | ✅ |
 | 6–7 | **Molndrift och publicering:** inloggning med sessioner, HTTPS, schemaläggare på servern (en artikel per dag, svensk tid), kalender, paus, ändra datum, skydd mot dubbelpublicering och ändrat innehåll, WordPress-klient och tilläggsplugin, nattliga säkerhetskopior, publiceringslogg, Docker och Fly.io. Se [DRIFT.md](DRIFT.md). | ✅ Förberett, inte driftsatt |
@@ -203,13 +203,74 @@ Med `ANTHROPIC_API_KEY` i `.env` skriver Claude artikeln. Utan nyckel visas en d
 
 Prompten finns i `app/ai_writer.py` (`SYSTEMPROMPT`). Där justerar du ton, längd och struktur.
 
+## AI-bilder
+
+Varje artikel har fyra bilder: en **huvudbild** direkt efter introduktionen och **tre bilder** direkt efter H2-rubrikerna i de avsnitt där en bild hjälper läsaren mest.
+
+**Motiv.** När Claude skriver artikeln väljer den ett motiv per bild utifrån ämnet och just det avsnittets innehåll, och skriver en svensk alt-text. Servern lägger alltid till Klimathemmets stil sist i prompten: fotorealistiskt, ljust och skandinaviskt, och uttryckligen utan text, logotyper och vattenstämplar. Stilen läggs till även när du skrivit motivet själv.
+
+**Bild-fliken** i editorn visar alla fyra bilderna. Där kan du:
+- förhandsgranska bilderna; de syns också i förhandsvisningen av artikeln
+- skapa alla saknade bilder, eller generera om en enskild bild
+- redigera alt-text (med kontroll av längd och formulering), bildtext och motiv
+- byta en bild mot en egen fil (JPEG, PNG eller WebP, minst 600 px bred, högst 15 MB)
+- godkänna en bild, som då låses
+
+**Kostnaden visas först.** Innan något skapas visas antal bilder, modell och uppskattad kostnad i dollar och kronor. Ingenting beställs förrän du kryssat i att du godkänner kostnaden. Servern nekar beställningar som inte är bekräftade.
+
+**Godkända bilder genereras aldrig om automatiskt.**
+- När du godkänner artikeln godkänns dess färdiga bilder samtidigt.
+- Godkända bilder kan inte genereras om eller bytas förrän du låser upp dem.
+- När artikeltexten genereras om, till exempel efter *Begär ändringar*, behålls alla färdiga bilder. Ingen bild skapas automatiskt. Ej godkända bilder får det nya motivförslaget och en markering, så att du kan välja att generera om dem.
+
+**Lagring och format.**
+- Varje bild konverteras till WebP (kvalitet 80, högst 1536 px bred, utan metadata) och sparas på servern i `STUDIO_DATA/bilder/<artikel-id>/` så fort den är klar.
+- I molndriften ligger mappen på den permanenta volymen `/data`, alltså inte på din Mac.
+- Filnamnen innehåller bildens kontrollsumma. Vid uppladdning till WordPress får bilden ett beskrivande filnamn från alt-texten och huvudsökordet, till exempel `luft-vattenvarmepump-vid-husvagg-pa-svensk-villatomt.webp`.
+
+**Fel, timeout och omförsök.**
+- Tillfälliga fel (timeout, överbelastning, för många anrop) försöks igen upp till tre gånger med längre väntan för varje försök.
+- Fel som inte går över av sig själva, som en avvisad nyckel, ett avböjt motiv eller slut på krediter, visas direkt vid bilden med ett begripligt meddelande.
+- Bilderna skapas var för sig: en misslyckad bild påverkar inte de andra, och en misslyckad omgenerering behåller den tidigare bilden.
+- Genereringen körs på servern och fortsätter även om du stänger fönstret. Avbryts den av en omstart markeras bilden så att du kan försöka igen.
+
+**WordPress.**
+- Bilderna laddas upp till mediabiblioteket först när artikeln skickas till WordPress: vid *Skicka som utkast* eller vid den schemalagda publiceringen av en godkänd artikel.
+- Inlägget använder mediabibliotekets riktiga adresser med `srcset` och `sizes` från WordPress egna storlekar, samt `width` och `height`.
+- Huvudbilden laddas direkt (`fetchpriority="high"`) och blir inläggets **utvalda bild**. Övriga bilder har `loading="lazy"`.
+- En bild laddas aldrig upp två gånger. En ändrad alt-text uppdateras i mediabiblioteket, och en bild som tagits bort där laddas upp igen.
+- I simuleringsläget skickas ingenting.
+- Bildernas kontrollsummor ingår i godkännandet: byts en bild efter godkännandet stoppas publiceringen.
+
+**Bildtjänst och nyckel.**
+- Standard är OpenAI:s bild-API med `OPENAI_API_KEY`. Spara nyckeln med `python scripts/spara_hemlighet.py OPENAI_API_KEY`, eller som en Fly-hemlighet i molnet.
+- Nyckeln läses bara på servern och skickas aldrig till webbläsaren, git eller loggarna.
+- Med `STUDIO_BILD_API_URL` kan du använda en annan tjänst med samma API.
+
+| Variabel | Standard | Beskrivning |
+|---|---|---|
+| `OPENAI_API_KEY` | – | API-nyckel (hemlighet) |
+| `STUDIO_BILDTJANST` | `openai` | `openai`, eller `av` för att stänga av. `test` ritar lokala låtsasbilder utan kostnad och används bara i tester; det stoppas i produktion och testbilder kan inte skickas till WordPress. |
+| `STUDIO_BILD_MODELL` | `gpt-image-2` | Bildmodell |
+| `STUDIO_BILD_KVALITET` | `medium` | `low`, `medium` eller `high` |
+| `STUDIO_BILD_PRIS_USD` | 0,005 / 0,041 / 0,165 | Pris per bild i 1536×1024 för kostnadsuppskattningen, per kvalitet |
+| `STUDIO_USD_SEK` | `10` | Växelkurs för uppskattningen i kronor |
+| `STUDIO_BILD_TIMEOUT` | `180` | Sekunder per försök |
+| `STUDIO_BILD_API_URL` | `https://api.openai.com/v1` | API-adress |
+
+**Kostnad.**
+- Med standardinställningarna kostar en bild cirka 0,04 USD, så fyra bilder blir cirka 0,16 USD (≈ 1,6 kr) per artikel. Med `low` blir det cirka 0,2 kr och med `high` cirka 6,6 kr.
+- Priserna kommer från leverantörens prisuppgifter i september 2026 och kan ändras. Kontrollera aktuella priser och justera `STUDIO_BILD_PRIS_USD` vid behov.
+- Ett anrop som misslyckas med ett fel debiteras normalt inte. Ett anrop som når tidsgränsen kan ändå ha debiterats.
+- Sätt en månadsgräns hos leverantören.
+
 ## Funktioner i steg 1
 
 - **Brief:** huvudsökord och sekundära sökord (lägg till med Enter eller komma).
 - **Förhandsgranskning:** artikeln visas med Klimathemmet-designen, på dator- eller mobilbredd.
 - **Redigering:** direkt i förhandsvisningen, i HTML-fliken eller i rubrikfältet. Ändringar sparas automatiskt i webbläsaren.
 - **SEO-fliken:** metatitel och metabeskrivning med teckenräknare, URL-slug och en Google-förhandsvisning.
-- **Bilder-fliken:** alt-text, bildtext och bildbeskrivning för de fyra bilderna.
+- **Bilder-fliken:** se [AI-bilder](#ai-bilder).
 - **SEO-kontroll:** kontrollerar bland annat sökord i H1, metadata, slug, första stycket, underrubriker, sekundära sökord, alt-texter och textlängd.
 - **WordPress-kod:** färdig kod för ett *Anpassad HTML*-block, med CSS:en inbäddad och scopad till `.kh-artikel`.
 

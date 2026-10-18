@@ -198,19 +198,46 @@ def uppdatera(artikel_id: int, **falt) -> None:
         c.execute(f"UPDATE artiklar SET {kolumner} WHERE id = ?", (*falt.values(), artikel_id))
 
 
-def byt_status(artikel_id: int, fran: tuple[str, ...], till: str, **falt) -> bool:
-    """Byter status bara om artikeln har en av de förväntade statusarna (skydd mot dubbelklick och kapplöpning)."""
+def byt_status(artikel_id: int, fran: tuple[str, ...], till: str, sla_ihop=None, **falt) -> bool:
+    """Byter status bara om artikeln har en av de förväntade statusarna (skydd mot dubbelklick och kapplöpning).
+
+    sla_ihop(nytt, nuvarande) körs under samma lås och får det sparade innehållet, så att
+    till exempel en bild som just blivit klar i bakgrunden inte skrivs över av en äldre version.
+    """
     falt.update(status=till, uppdaterad=nu())
+    nytt = falt.pop("innehall", None) if sla_ihop else None
     if "innehall" in falt and falt["innehall"] is not None:
         falt["innehall"] = json.dumps(falt["innehall"], ensure_ascii=False)
-    kolumner = ", ".join(f"{k} = ?" for k in falt)
     platser = ", ".join("?" for _ in fran)
     with _conn() as c:
+        if sla_ihop:
+            r = c.execute("SELECT innehall FROM artiklar WHERE id = ?", (artikel_id,)).fetchone()
+            nuvarande = json.loads(r[0]) if r and r[0] else None
+            falt["innehall"] = json.dumps(sla_ihop(nytt, nuvarande), ensure_ascii=False)
+        kolumner = ", ".join(f"{k} = ?" for k in falt)
         cur = c.execute(
             f"UPDATE artiklar SET {kolumner} WHERE id = ? AND status IN ({platser})",
             (*falt.values(), artikel_id, *fran),
         )
         return cur.rowcount == 1
+
+
+def andra_innehall(artikel_id: int, andring, statusar: tuple[str, ...]) -> dict | None:
+    """Ändrar innehållet atomiskt: andring(innehall) körs under låset och returnerar det nya innehållet.
+
+    Ändrar ingenting om artikeln saknas, saknar innehåll, har fel status eller om andring returnerar None.
+    andring får inte själv anropa databasen (låset är inte återinträdbart).
+    """
+    with _conn() as c:
+        r = c.execute("SELECT innehall, status FROM artiklar WHERE id = ?", (artikel_id,)).fetchone()
+        if r is None or r["innehall"] is None or r["status"] not in statusar:
+            return None
+        nytt = andring(json.loads(r["innehall"]))
+        if nytt is None:
+            return None
+        c.execute("UPDATE artiklar SET innehall = ?, uppdaterad = ? WHERE id = ?",
+                  (json.dumps(nytt, ensure_ascii=False), nu(), artikel_id))
+        return nytt
 
 
 def ta_bort(artikel_id: int) -> None:
