@@ -1,8 +1,15 @@
 .git
 .env
+.env.*
 .venv
 data
 dist
 tests
+secrets
+*.key
+utdata
+cache
+skarmbilder
 **/__pycache__
 *.db
+*.tgz

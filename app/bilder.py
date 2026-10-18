@@ -176,6 +176,8 @@ def saknas_orsak() -> str | None:
     if s.bildtjanst == "test":
         return None if not s.produktion else "Testbilder kan inte användas i produktion. Ta bort STUDIO_BILDTJANST=test."
     if not s.openai_api_key:
+        if s.produktion:
+            return "OPENAI_API_KEY saknas på servern. Lägg in den med ./scripts/fly_hemlighet.sh OPENAI_API_KEY (appen startar om)."
         return ("OPENAI_API_KEY saknas på servern. Lägg den i .env i projektmappen (eller spara den med "
                 "python scripts/spara_hemlighet.py OPENAI_API_KEY) och starta om servern.")
     return None

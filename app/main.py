@@ -42,6 +42,8 @@ async def lifespan(_app: FastAPI):
     saknade.init()
     bilder.init()
     s = config.settings
+    logging.getLogger("studio").info("Start: miljö %s, publiceringsläge %s, inloggning %s, data i %s", s.miljo, s.publicering,
+                                     "på" if s.inloggning_aktiv else "av", s.data_dir)
     # Bara ja/nej om nyckeln; värdet loggas aldrig.
     logging.getLogger("studio").info(
         "Bilder: %s (modell %s, kvalitet %s, nyckel %s)%s", s.bildtjanst, s.bild_modell, s.bild_kvalitet,
@@ -598,6 +600,18 @@ def avboka(artikel_id: int):
 def pausa(body: Paus):
     publicering.satt_paus(body.pausad)
     return {"pausad": body.pausad}
+
+
+@app.get("/api/sakerhetskopia/komplett")
+def ladda_ner_komplett_sakerhetskopia():
+    """Databasen och alla bilder i ett arkiv, för förvaring utanför servern."""
+    from . import sakerhetskopia
+
+    fil = Path(tempfile.mkstemp(suffix=".tgz")[1])
+    sakerhetskopia.skapa_arkiv(fil)
+    namn = f"klimathemmet-studio-komplett-{publicering.idag_lokalt().isoformat()}.tgz"
+    return FileResponse(fil, filename=namn, media_type="application/gzip",
+                        background=BackgroundTask(fil.unlink, missing_ok=True))
 
 
 @app.get("/api/sakerhetskopia")

@@ -710,3 +710,5 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
   .seo-detail { position: sticky; top: calc(var(--topbar-h) + 24px); max-height: calc(100vh - var(--topbar-h) - 48px); overflow: auto; }
   #graph { height: 600px; }
 }
+.btn-block + .btn-block { margin-top: 8px; }
+.pub-grid .btn-block { white-space: normal; }

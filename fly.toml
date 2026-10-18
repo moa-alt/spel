@@ -2,14 +2,20 @@
 # Driftsätts först när du kör `fly deploy` själv – se DRIFT.md.
 app = "klimathemmet-studio"     # byt till ett eget, unikt namn
 primary_region = "arn"          # Stockholm
+# Ge en pågående publicering tid att bli klar vid omstart (avbryts den återupptas den ändå utan dubbletter).
+kill_signal = "SIGTERM"
+kill_timeout = 30
+# Extra minne på disken för bildbehandling; kostar inget extra.
+swap_size_mb = 512
 
 [env]
   STUDIO_MILJO = "produktion"
   STUDIO_DATA = "/data"
-  # simulering = inget skickas till WordPress. Ändras först när du godkänt det (se DRIFT.md).
+  # simulering = inget skickas till WordPress. Ändras bara här (inte som hemlighet), och först när du godkänt det.
   STUDIO_PUBLICERING = "simulering"
   WP_URL = "https://klimathemmet.se"
 
+# Databas, bilder och säkerhetskopior ligger på den permanenta volymen och överlever omstarter och driftsättningar.
 [mounts]
   source = "studio_data"
   destination = "/data"
@@ -29,6 +35,11 @@ primary_region = "arn"          # Stockholm
     method = "GET"
     path = "/healthz"
 
+# Starta alltid om appen om den stannar, så att schemaläggaren aldrig blir stående.
+[[restart]]
+  policy = "always"
+
+# Exakt en maskin: volymen kan bara monteras på en maskin, och schemaläggaren ska bara köras på ett ställe.
 [[vm]]
   size = "shared-cpu-1x"
   memory = "512mb"
