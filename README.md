@@ -116,6 +116,10 @@ python -m pytest tests/e2e -q          # bara webbläsartesterna
 E2E_SKARMBILDER=skarmbilder python -m pytest tests/e2e -q   # sparar skärmbilder
 ```
 
+Testerna är skyddade från dina riktiga inställningar och från din sajt:
+- `.env` läses aldrig in under testerna (`STUDIO_DOTENV=0`), och alla variabler för nycklar, WordPress och publicering tas bort, även för servrarna som webbläsartesterna startar.
+- En nätverksspärr stoppar alla anrop utanför den egna datorn. Inget test kan alltså nå klimathemmet.se, inte ens för att läsa.
+
 Webbläsartesterna kör hela granskningsflödet på fyra skärmstorlekar: iPhone (390 px), Android (412 px), surfplatta (820 px) och dator (1440 px). De kontrollerar bland annat följande:
 - att sidan aldrig går att scrolla i sidled
 - att granskningsknapparna syns utan att man scrollar på mobil

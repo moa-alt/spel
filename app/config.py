@@ -12,7 +12,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# .env läses in om inte STUDIO_DOTENV=0 (testerna stänger av den, så att de aldrig får dina riktiga inställningar).
+ENV_FIL = Path(os.getenv("STUDIO_ENV_FIL", Path(__file__).resolve().parent.parent / ".env"))
+if os.getenv("STUDIO_DOTENV", "1") != "0":
+    load_dotenv(ENV_FIL)
 
 HEMLIGHETS_MAPP = Path(os.getenv("STUDIO_SECRETS_DIR", Path.home() / ".config" / "klimathemmet-studio"))
 

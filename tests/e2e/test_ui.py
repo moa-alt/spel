@@ -37,7 +37,8 @@ def _starta(tmp, **extra):
     port = _ledig_port()
     env = {k: v for k, v in os.environ.items()
            if k not in ("ANTHROPIC_API_KEY", "STUDIO_USER", "STUDIO_PASSWORD", "WP_URL", "STUDIO_PUBLICERING")}
-    env.update(STUDIO_DATA=str(tmp), STUDIO_DB=str(tmp / "e2e.db"), STUDIO_SECRETS_DIR=str(tmp / "secrets"),
+    # STUDIO_DOTENV=0: servern läser inte in din .env (se tests/conftest.py).
+    env.update(STUDIO_DOTENV="0", STUDIO_DATA=str(tmp), STUDIO_DB=str(tmp / "e2e.db"), STUDIO_SECRETS_DIR=str(tmp / "secrets"),
                STUDIO_CLAUDE_EFFORT="high", **extra)
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(port)],
@@ -336,4 +337,16 @@ def test_lankforslag_kraver_godkannande(sajt_server, browser, enhet):
     page.locator("#nodeTable tr", has_text="FTX-ventilation i villa").first.click()
     page.locator("#seoDetail", has_text="Huvudnyckelord").wait_for()
     assert fel == []
+    ctx.close()
+
+
+def test_seo_karta_utan_wordpress_adress(server, browser):
+    """Utan WP_URL ska kartan förklara vad som saknas och inte gå att starta."""
+    ctx = browser.new_context(**ENHETER["iphone"])
+    page = ctx.new_page()
+    page.goto(server)
+    page.click('.view-btn[data-view="seo"]')
+    page.locator("#seoEmpty").wait_for()
+    assert "Ange sajtens adress (WP_URL)" in page.text_content("#seoEmptyText")
+    assert page.locator("#mapBtn").is_disabled()
     ctx.close()

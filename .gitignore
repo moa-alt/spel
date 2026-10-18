@@ -8,3 +8,4 @@ cache/
 secrets/
 data/
 dist/
+tests/.inga-hemligheter/
