@@ -1601,7 +1601,7 @@ function renderSaknade() {
   const lista = saknad.lista.filter((m) => !saknad.filter || m.klass === saknad.filter);
   $("#missingSection").hidden = !saknad.lista.length;
   $("#missingList").innerHTML = lista.length ? lista.map((m) => {
-    const f = m.forslag;
+    const f = m.sammanhang;
     const plan = m.artikel
       ? `<div class="ms-plan">Planerad artikel: ”${esc(m.artikel.huvudsokord)}” (${esc(STATUS_NAMN[m.artikel.status] || m.artikel.status)})</div>`
       : m.klass === "planerad" ? `<div class="ms-plan">Bekräftad som planerad av dig. Ingen artikel finns i kön ännu.</div>` : "";
@@ -1610,7 +1610,7 @@ function renderSaknade() {
         <span class="tag ${m.klass === "planerad" ? "tag-ok" : "tag-bad"}">${m.klass === "planerad" ? "Planerad" : "Trasig"}</span>
         <span class="prio prio-${m.prioritet.niva}">${m.prioritet.niva} prioritet</span></div>
       <div class="ms-count"><b>${m.antal}</b>${m.antal === 1 ? "befintlig artikel" : "befintliga artiklar"} länkar hit</div>
-      ${!m.artikel ? `<div class="ms-forslag">Förslag: <b>${esc(f.huvudsokord)}</b> · ${esc(f.sokintention)}${f.kluster ? ` · ${esc(f.kluster)}` : ""} <span class="tag tag-warn">Beräknat</span></div>` : ""}
+      ${!m.artikel && f.kluster ? `<div class="ms-forslag">Troligt ämneskluster: <b>${esc(f.kluster)}</b> <span class="tag tag-warn">Beräknat</span></div>` : ""}
       <div class="ms-why">${esc(m.prioritet.skal.join(" · "))}</div>
       ${plan}
       <details><summary>Visa länkande artiklar</summary><ul>${m.kallor.map((k) => `<li><button class="lank" type="button" data-nod="${k.id}">${esc(k.titel)}</button> <span class="muted">”${esc(k.ankartext)}”</span></li>`).join("")}</ul></details>
@@ -1642,40 +1642,77 @@ $("#missingList").addEventListener("click", async (e) => {
   } catch (err) { toast(err.message); }
 });
 
-function fyllSkapa(f) {
-  $("#createHuvud").value = f.huvudsokord;
-  $("#createSek").value = f.sekundara_sokord.join(", ");
-  $("#createIntent").value = f.sokintention;
-  $("#createKluster").value = f.kluster || "";
-  $("#createSource").innerHTML = f.ursprung === "ai"
-    ? `<span class="tag tag-ai">AI-förslag</span> ${esc(f.motivering || "")}`
-    : `<span class="tag tag-warn">Beräknat</span> från adressen och ankartexterna. Inga sökvolymer anges.`;
+function kanSkapa() {
+  const harHuvud = $("#createHuvud").value.trim().length >= 2;
+  $("#createOk").disabled = !harHuvud || !$("#createConfirm").checked;
+  // Visa varför knappen är låst när du bekräftat men inte angett något huvudsökord.
+  $("#createError").hidden = harHuvud || !$("#createConfirm").checked;
 }
 
 function oppnaSkapa(m) {
   saknad.aktuell = m;
-  $("#createPath").textContent = m.sokvag;
+  $("#createPath").textContent = m.url || m.sokvag;
   $("#createWhy").textContent = `${m.antal} befintliga artiklar länkar redan hit. Prioritet: ${m.prioritet.niva} (${m.prioritet.skal.join(", ")}).`;
   $("#createKluster").innerHTML = `<option value="">Inget valt</option>` + (seo.data?.kluster || []).filter((k) => k.id !== "ovrigt")
     .map((k) => `<option value="${esc(k.namn)}">${esc(k.namn)}</option>`).join("");
-  fyllSkapa(m.forslag);
+  // Sökorden väljer du själv: fälten är alltid tomma från början.
+  $("#createHuvud").value = "";
+  $("#createSek").value = "";
+  $("#createIntent").value = m.sammanhang.sokintention || "informativ";
+  $("#createKluster").value = m.sammanhang.kluster || "";
+  $("#createAiBox").hidden = true;
+  $("#createAiList").innerHTML = "";
   $("#createConfirm").checked = false;
-  $("#createOk").disabled = true;
   $("#createAi").disabled = !seo.data?.ai;
   $("#createAi").title = seo.data?.ai ? "" : "Kräver ANTHROPIC_API_KEY på servern";
+  kanSkapa();
   $("#createDialog").showModal();
+  $("#createHuvud").focus();
 }
-$("#createConfirm").addEventListener("change", (e) => { $("#createOk").disabled = !e.target.checked || $("#createHuvud").value.trim().length < 2; });
-$("#createHuvud").addEventListener("input", () => { $("#createOk").disabled = !$("#createConfirm").checked || $("#createHuvud").value.trim().length < 2; });
+["#createConfirm", "#createHuvud"].forEach((id) => $(id).addEventListener("input", kanSkapa));
+$("#createConfirm").addEventListener("change", kanSkapa);
+
+// AI-förslag visas separat; ingenting fylls i förrän du klickar på ett förslag.
+function lagTillSekundart(ord) {
+  const nu = $("#createSek").value.split(",").map((x) => x.trim()).filter(Boolean);
+  if (!nu.some((x) => x.toLowerCase() === ord.toLowerCase())) nu.push(ord);
+  $("#createSek").value = nu.join(", ");
+}
 $("#createAi").addEventListener("click", async () => {
   const btn = $("#createAi");
   btn.disabled = true; btn.textContent = "AI tänker…";
-  try { fyllSkapa(await api("/api/saknade/ai-forslag", { sokvag: saknad.aktuell.sokvag })); }
-  catch (err) { toast(err.message); }
-  finally { btn.textContent = "Förbättra förslaget med AI"; btn.disabled = false; }
+  try {
+    const f = await api("/api/saknade/ai-forslag", { sokvag: saknad.aktuell.sokvag });
+    saknad.ai = f;
+    $("#createAiList").innerHTML = `
+      <div class="ai-rad">Huvudsökord: <span class="chip">${esc(f.huvudsokord)}</span>
+        <button class="btn btn-ghost btn-sm" type="button" data-ai="huvud">Använd</button></div>
+      ${f.sekundara_sokord.length ? `<div class="ai-rad">Sekundära: ${f.sekundara_sokord.map((x, i) =>
+        `<span class="chip">${esc(x)}</span><button class="btn btn-ghost btn-sm" type="button" data-ai="sek" data-i="${i}">Lägg till</button>`).join("")}
+        <button class="btn btn-ghost btn-sm" type="button" data-ai="allasek">Lägg till alla</button></div>` : ""}
+      <div class="ai-rad">Sökintention: <span class="chip">${esc(f.sokintention)}</span>
+        <button class="btn btn-ghost btn-sm" type="button" data-ai="intent">Använd</button></div>
+      ${f.kluster ? `<div class="ai-rad">Ämneskluster: <span class="chip">${esc(f.kluster)}</span>
+        <button class="btn btn-ghost btn-sm" type="button" data-ai="kluster">Använd</button></div>` : ""}
+      ${f.motivering ? `<p class="muted">${esc(f.motivering)}</p>` : ""}`;
+    $("#createAiBox").hidden = false;
+  } catch (err) { toast(err.message); }
+  finally { btn.textContent = "Föreslå sökord med AI"; btn.disabled = !seo.data?.ai; }
 });
+$("#createAiList").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-ai]");
+  const f = saknad.ai;
+  if (!b || !f) return;
+  if (b.dataset.ai === "huvud") $("#createHuvud").value = f.huvudsokord;
+  if (b.dataset.ai === "sek") lagTillSekundart(f.sekundara_sokord[Number(b.dataset.i)]);
+  if (b.dataset.ai === "allasek") f.sekundara_sokord.forEach(lagTillSekundart);
+  if (b.dataset.ai === "intent") $("#createIntent").value = f.sokintention;
+  if (b.dataset.ai === "kluster") $("#createKluster").value = f.kluster;
+  kanSkapa();
+});
+
 $("#createDialog").addEventListener("close", async () => {
-  if ($("#createDialog").returnValue !== "ok" || !$("#createConfirm").checked) return;
+  if ($("#createDialog").returnValue !== "ok" || !$("#createConfirm").checked || $("#createHuvud").value.trim().length < 2) return;
   try {
     const r = await api("/api/saknade/skapa-artikel", {
       sokvag: saknad.aktuell.sokvag, bekraftad: true, huvudsokord: $("#createHuvud").value,

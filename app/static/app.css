@@ -571,7 +571,15 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
 .ms-knappar { display: flex; flex-wrap: wrap; gap: 8px; }
 .prio { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
 .prio-hög { border-color: var(--brand); color: var(--brand); }
-.create-why, .create-source { font-size: 13px; margin: -4px 0 12px !important; }
+.create-why, .create-note { font-size: 13px; margin: 0 0 12px !important; }
+.create-path { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.create-path code { font-size: 15px; background: none; padding: 0; }
+.create-error { color: var(--bad); background: var(--bad-soft); padding: 8px 12px; border-radius: 10px; font-size: 14px; margin: -6px 0 12px !important; }
+.ai-sokord { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin: 0 0 14px; }
+.ai-sokord p { margin: 0 0 10px !important; font-size: 13px; }
+.ai-rad { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+.ai-rad .chip { background: var(--info-soft); color: var(--info); padding-right: 12px; }
+.ai-rad .btn-sm { min-height: 34px; padding: 5px 12px; font-size: 13px; }
 #createAi { margin: 0 0 14px; }
 .slug-lock { display: block; margin-top: 6px; font-size: 12px; }
 

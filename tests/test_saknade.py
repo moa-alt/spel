@@ -42,21 +42,58 @@ def test_saknade_adresser_grupperas_med_sina_inkommande_lankar(klient, sajt):
     assert statistik(klient) == {"fungerande": 7, "trasiga": 3, "planerade_lankar": 0, "planerade_mal": 0}
 
 
-def test_forslag_och_prioritering(klient, sajt):
+def test_sammanhang_och_prioritering_utan_sokordsforslag(klient, sajt):
     kryp = saknade(klient)[KRYP]
-    f = kryp["forslag"]
-    assert f["huvudsokord"] == "fukt i krypgrund" and f["sokintention"] == "informativ"
-    assert f["kluster"] in {"Fukt", "Ventilation"} and "fukt i krypgrunden" in f["sekundara_sokord"]
-    assert f["ursprung"] == "beraknat" and "2 befintliga artiklar" in f["motivering"]
+    assert "forslag" not in kryp
+    f = kryp["sammanhang"]
+    assert f["kluster"] in {"Fukt", "Ventilation"} and f["sokintention"] == "informativ"
+    assert "huvudsokord" not in f and "sekundara_sokord" not in f
     p = kryp["prioritet"]
     assert p["poang"] > 0 and p["niva"] in {"hög", "medel", "låg"} and "2 artiklar länkar hit" in p["skal"]
 
 
-def test_slugens_tecken_aterstalls_fran_ankartexter():
-    from app.saknade import _aterstall_tecken
+def test_skapa_artikel_kraver_huvudsokord(klient, sajt):
+    fore = antal_artiklar(klient)
+    for huvud in ("", "   ", "x"):
+        r = klient.post("/api/saknade/skapa-artikel", json={"sokvag": KRYP, "huvudsokord": huvud,
+                                                            "sekundara_sokord": ["krypgrund"], "bekraftad": True})
+        assert r.status_code == 400 and "Huvudsökord är obligatoriskt" in r.json()["detail"]
+    r = klient.post("/api/saknade/skapa-artikel", json={"sokvag": KRYP, "bekraftad": True})
+    assert r.status_code == 400
+    assert antal_artiklar(klient) == fore
+    assert saknade(klient)[KRYP]["klass"] == "trasig"
 
-    assert _aterstall_tecken(["fukt", "i", "kallare"], ["Fukt i källare", "källaren"]) == "fukt i källare"
-    assert _aterstall_tecken(["varmepump"], []) == "varmepump"
+
+def test_exakt_angivna_sokord_sparas_och_anvands_vid_generering(klient, sajt):
+    from app import db
+
+    data = {"sokvag": KRYP, "huvudsokord": "  Krypgrund   avfuktning ", "sekundara_sokord": [" fukt under huset", "torr krypgrund "],
+            "sokintention": "kommersiell", "kluster": "Fukt", "bekraftad": True}
+    r = klient.post("/api/saknade/skapa-artikel", json=data)
+    assert r.status_code == 201
+    aid = r.json()["artikel_id"]
+    a = klient.get(f"/api/artiklar/{aid}").json()
+    assert a["huvudsokord"].lower() == "krypgrund avfuktning"
+    assert [s.lower() for s in a["sekundara_sokord"]] == ["fukt under huset", "torr krypgrund"]
+    # Adressen påverkar inte sökorden och sökorden påverkar inte adressen.
+    assert a["mal_slug"] == "fukt-i-krypgrund"
+    klient.post(f"/api/artiklar/{aid}/generera")
+    for _ in range(200):
+        if db.hamta(aid)["status"] == "granskas":
+            break
+        time.sleep(0.02)
+    i = klient.get(f"/api/artiklar/{aid}").json()["innehall"]
+    assert i["slug"] == "fukt-i-krypgrund"
+    assert i["huvudsokord"].lower() == "krypgrund avfuktning"
+    assert [s.lower() for s in i["sekundara_sokord"]] == ["fukt under huset", "torr krypgrund"]
+    assert "krypgrund avfuktning" in (i["meta_titel"] + " " + i["meta_beskrivning"]).lower()
+
+
+def test_sekundara_sokord_ar_valfria(klient, sajt):
+    r = klient.post("/api/saknade/skapa-artikel", json={"sokvag": KRYP, "huvudsokord": "fukt i krypgrund", "bekraftad": True})
+    assert r.status_code == 201
+    a = klient.get(f"/api/artiklar/{r.json()['artikel_id']}").json()
+    assert a["huvudsokord"] == "fukt i krypgrund" and a["sekundara_sokord"] == []
 
 
 def test_skapa_artikel_kraver_bekraftelse_och_lagger_bara_ett_utkast_i_kon(klient, sajt):

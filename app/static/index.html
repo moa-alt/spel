@@ -479,24 +479,34 @@
   <dialog class="dialog dialog-wide" id="createDialog">
     <form method="dialog" id="createForm">
       <h2>Skapa artikel</h2>
-      <p class="muted">Artikeln läggs som <strong>utkast</strong> i artikelkön och låses till adressen <code id="createPath"></code>, så att de befintliga länkarna börjar fungera när den publicerats. Den genereras först när du väljer det och publiceras aldrig utan ditt godkännande.</p>
+      <div class="field">
+        <span class="label">Saknad adress <small>ändras inte</small></span>
+        <div class="create-path"><code id="createPath"></code></div>
+      </div>
       <p class="muted create-why" id="createWhy"></p>
-      <label class="field"><span class="label">Huvudnyckelord</span><input id="createHuvud" type="text" maxlength="120"></label>
-      <label class="field"><span class="label">Sekundära sökord <small>kommaseparerade</small></span><input id="createSek" type="text"></label>
+      <label class="field"><span class="label">Huvudsökord <small>obligatoriskt</small></span>
+        <input id="createHuvud" type="text" maxlength="120" required autocomplete="off" placeholder="t.ex. fukt i krypgrund"></label>
+      <label class="field"><span class="label">Sekundära sökord <small>valfria, kommaseparerade</small></span>
+        <input id="createSek" type="text" autocomplete="off" placeholder="t.ex. krypgrundsavfuktare, lukt i krypgrund"></label>
+      <p class="create-error" id="createError" role="alert" hidden>Ange ett huvudsökord.</p>
       <div class="pub-fields">
         <label class="field"><span class="label">Sökintention</span>
           <select id="createIntent"><option value="informativ">Informativ</option><option value="kommersiell">Kommersiell</option><option value="transaktionell">Transaktionell</option><option value="navigerande">Navigerande</option></select></label>
         <label class="field"><span class="label">Ämneskluster</span><select id="createKluster"></select></label>
       </div>
-      <p class="muted create-source" id="createSource"></p>
-      <button class="btn btn-ghost btn-sm" id="createAi" type="button">Förbättra förslaget med AI</button>
+      <button class="btn btn-ghost btn-sm" id="createAi" type="button">Föreslå sökord med AI</button>
+      <div class="ai-sokord" id="createAiBox" hidden>
+        <p class="muted"><span class="tag tag-ai">AI-förslag</span> Ingenting fylls i förrän du väljer det.</p>
+        <div id="createAiList"></div>
+      </div>
+      <p class="muted create-note">Artikeln läggs som <strong>utkast</strong> i artikelkön med exakt de sökord du angett, och låses till adressen ovan så att de befintliga länkarna börjar fungera när den publicerats. Den genereras först när du väljer det och publiceras aldrig utan ditt godkännande.</p>
       <label class="confirm-check">
         <input type="checkbox" id="createConfirm">
         <span>Lägg artikeln i artikelkön som utkast.</span>
       </label>
       <div class="dialog-actions">
         <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Avbryt</button>
-        <button class="btn btn-primary" id="createOk" value="ok" type="submit" disabled>Lägg i artikelkön</button>
+        <button class="btn btn-primary" id="createOk" value="ok" type="submit" disabled>Lägg till i artikelkön</button>
       </div>
     </form>
   </dialog>

@@ -373,10 +373,36 @@ def test_saknade_sidor_och_skapa_artikel(sajt_server, browser, enhet):
 
     if kryp.locator("[data-ms=skapa]").count():
         kryp.locator("[data-ms=skapa]").click()
-        assert page.locator("#createHuvud").input_value() == "fukt i krypgrund"
+        # Sökorden är tomma från början; adressen visas oförändrad.
+        assert page.locator("#createHuvud").input_value() == ""
+        assert page.locator("#createSek").input_value() == ""
+        assert "/fukt-i-krypgrund/" in page.text_content("#createPath")
         assert page.locator("#createOk").is_disabled()
-        _skarmbild(page, f"{enhet}-12-skapa-dialog")
+        # Utan huvudsökord går det inte att skapa, även om du bekräftar.
         page.check("#createConfirm")
+        assert page.locator("#createOk").is_disabled()
+        assert page.locator("#createError").is_visible()
+        _ingen_sidscroll(page)
+        _skarmbild(page, f"{enhet}-12-skapa-dialog")
+
+        # AI-förslag fylls aldrig i automatiskt – bara när du klickar på det.
+        page.route("**/api/saknade/ai-forslag", lambda route: route.fulfill(json={
+            "huvudsokord": "ai huvudsokord", "sekundara_sokord": ["ai ett", "ai tva"],
+            "sokintention": "kommersiell", "kluster": None, "motivering": "Test"}))
+        page.evaluate("document.querySelector('#createAi').disabled = false")
+        page.click("#createAi")
+        page.locator("#createAiBox:not([hidden])").wait_for()
+        assert page.locator("#createHuvud").input_value() == ""
+        assert page.locator("#createSek").input_value() == ""
+        page.click('#createAiList [data-ai="sek"][data-i="1"]')
+        assert page.locator("#createSek").input_value() == "ai tva"
+        assert page.locator("#createHuvud").input_value() == ""
+
+        # Egna sökord skrivs in för hand och sparas exakt.
+        page.fill("#createHuvud", "fukt i krypgrund")
+        page.fill("#createSek", "krypgrundsavfuktare, mögel i krypgrund")
+        assert page.locator("#createError").is_hidden()
+        assert not page.locator("#createOk").is_disabled()
         page.click("#createOk")
         page.locator("#toast", has_text="utkast").wait_for()
     page.locator("#missingList .ms", has_text="/fukt-i-krypgrund/").locator(".tag-ok").wait_for()

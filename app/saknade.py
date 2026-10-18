@@ -5,6 +5,9 @@ En saknad adress klassificeras som
   har bekräftat den som planerad;
 - trasig: i alla andra fall.
 
+Sökorden för en ny artikel anges alltid av dig. AI kan föreslå sökord på begäran, men förslagen
+används bara om du aktivt väljer dem.
+
 Ingenting här skapar eller publicerar artiklar automatiskt. "Skapa artikel" lägger, efter ditt
 godkännande, en artikel som utkast i artikelkön; generering och publicering är separata steg.
 När artikeln väl publicerats på rätt adress blir länkarna fungerande vid nästa kartläggning.
@@ -33,6 +36,7 @@ CREATE TABLE IF NOT EXISTS planerade_mal (
 );
 """
 
+MAX_SOKORD_ORD = 6
 KOMMERSIELLA_ORD = ("pris", "priser", "kostnad", "kostar", "köpa", "köp", "bäst", "bästa", "offert", "test", "jämför", "billig")
 TRANSAKTIONELLA_ORD = ("beställ", "boka", "offert", "rabatt")
 
@@ -92,44 +96,32 @@ def _sokintention(text: str) -> str:
     return "informativ"
 
 
-def _aterstall_tecken(slugord: list[str], ankare: list[str]) -> str:
-    """Slugen saknar å, ä och ö; hämta rätt stavning från ankartexterna när det går."""
-    kandidater = {slugify(o): o for a in ankare for o in re.findall(r"[\wåäöÅÄÖ-]+", a.lower())}
-    return " ".join(kandidater.get(o, o) for o in slugord)
-
-
-def berakna_forslag(mal: dict, analys: dict) -> dict:
-    """Förslag utan AI, byggt på adressen, ankartexterna och artiklarna som länkar hit."""
-    ankare = [k["ankartext"] for k in mal["kallor"] if k["ankartext"]]
-    slugord = [o for o in _sista_del(mal["sokvag"]).split("-") if o]
-    fran_slug = _aterstall_tecken(slugord, ankare)
-    # Vanligaste ankartexten med minst två ord, annars orden i adressen.
-    vanliga = [a for a, _ in Counter(" ".join(a.lower().split()) for a in ankare).most_common() if len(a.split()) >= 2]
-    huvud = vanliga[0] if vanliga and len(_token(vanliga[0]) & _token(fran_slug)) >= max(1, len(_token(fran_slug)) // 2) else fran_slug
-    sekundara = [a for a in dict.fromkeys(vanliga + [fran_slug]) if a != huvud][:5]
+def berakna_sammanhang(mal: dict, analys: dict) -> dict:
+    """Troligt ämneskluster och sökintention för en saknad adress. Föreslår aldrig sökord: dem väljer du själv."""
     kluster_id = Counter(k["kluster"] for k in mal["kallor"] if k.get("kluster")).most_common(1)
     kid = kluster_id[0][0] if kluster_id else None
     namn = {k["id"]: k["namn"] for k in analys["kluster"]}
     return {
-        "huvudsokord": huvud, "sekundara_sokord": sekundara, "sokintention": _sokintention(huvud + " " + " ".join(ankare)),
-        "kluster": namn.get(kid) if kid else None, "kluster_id": kid, "ursprung": "beraknat",
-        "motivering": f"{len(mal['kallor'])} befintliga artiklar länkar redan hit med ankartexter som ”{ankare[0]}”." if ankare else "",
+        "kluster": namn.get(kid) if kid else None, "kluster_id": kid,
+        # Bara utifrån adressens ord, eftersom ankartexterna ofta är hela meningar.
+        "sokintention": _sokintention(_sista_del(mal["sokvag"]).replace("-", " ")),
     }
 
 
-def _prioritet(mal: dict, forslag: dict, analys: dict) -> dict:
+def _prioritet(mal: dict, sammanhang: dict, analys: dict) -> dict:
     """Högre poäng för fler inkommande länkar, länkar från pelarsidor, stora kluster och kommersiell sökintention."""
     noder = {n["id"]: n for n in analys["noder"]}
     kallor = {k["id"] for k in mal["kallor"]}
     fran_pelare = any(noder.get(i, {}).get("roll") == "pelare" for i in kallor)
-    klusterstorlek = next((k["antal"] for k in analys["kluster"] if k["id"] == forslag.get("kluster_id")), 0)
+    klusterstorlek = next((k["antal"] for k in analys["kluster"] if k["id"] == sammanhang.get("kluster_id")), 0)
     storsta = max((k["antal"] for k in analys["kluster"]), default=1) or 1
-    relevans = len(_token(forslag["huvudsokord"]) & _token(" ".join(noder[i]["titel"] for i in kallor if i in noder)))
+    adressord = _sista_del(mal["sokvag"]).replace("-", " ")
+    relevans = len(_token(adressord) & _token(" ".join(noder[i]["titel"] for i in kallor if i in noder)))
     delar = [
         (min(len(kallor), 10) * 3, f"{len(kallor)} {'artikel' if len(kallor) == 1 else 'artiklar'} länkar hit"),
         (4 if fran_pelare else 0, "länkas från en pelarsida"),
         (round(4 * klusterstorlek / storsta), "stort ämneskluster" if klusterstorlek / storsta >= 0.5 else ""),
-        (3 if forslag["sokintention"] in ("kommersiell", "transaktionell") else 0, "kommersiell sökintention"),
+        (3 if sammanhang["sokintention"] in ("kommersiell", "transaktionell") else 0, "kommersiell sökintention"),
         (min(relevans, 3), "nära ämnet i länkande artiklar"),
     ]
     poang = sum(p for p, _ in delar)
@@ -175,8 +167,8 @@ def saknade() -> list[dict]:
         g["klass"] = klass
         g["bekraftad"] = bool(p)
         g["artikel"] = {"id": artikel["id"], "huvudsokord": artikel["huvudsokord"], "status": artikel["status"]} if artikel else None
-        g["forslag"] = berakna_forslag(g, analys)
-        g["prioritet"] = _prioritet(g, g["forslag"], analys)
+        g["sammanhang"] = berakna_sammanhang(g, analys)
+        g["prioritet"] = _prioritet(g, g["sammanhang"], analys)
         ut.append(g)
     ut.sort(key=lambda m: (-m["prioritet"]["poang"], -m["antal"], m["sokvag"]))
     return ut
@@ -267,9 +259,10 @@ async def ai_forslag(sokvag: str) -> dict:
     kallor = "\n".join(f"- {k['titel']}: länkar med ”{k['ankartext']}”" for k in mal["kallor"][:20])
     prompt = (f"En sida saknas på klimathemmet.se: {sokvag}\nBefintliga artiklar länkar redan dit:\n{kallor}\n\n"
               f"Ämneskluster på sajten: {', '.join(klusternamn)}\n\n"
-              "Föreslå artikeln som bör publiceras på adressen: huvudnyckelord som det skrivs naturligt på svenska och som "
-              "passar adressen, 3–6 sekundära sökord, sökintention, vilket av klustren den hör till (exakt namn) och en "
-              "kort motivering. Hitta inte på sökvolymer eller andra mätvärden.")
+              "Föreslå sökord för artikeln som bör publiceras på adressen: ett huvudnyckelord och 3–6 sekundära sökord. "
+              "Varje sökord ska vara en kort sökfras på 1–5 ord så som folk söker på svenska – aldrig en mening eller en "
+              "ankartext. Ange också sökintention, vilket av klustren den hör till (exakt namn) och en kort motivering. "
+              "Hitta inte på sökvolymer eller andra mätvärden.")
     client = anthropic.AsyncAnthropic(api_key=config.settings.anthropic_api_key, max_retries=3)
     try:
         async with client.messages.stream(
@@ -289,8 +282,13 @@ async def ai_forslag(sokvag: str) -> dict:
         data = json.loads("".join(b.text for b in blocks[sista + 1:] if b.type == "text"))
     except json.JSONDecodeError:
         raise SaknadFel("Svaret från Claude kunde inte tolkas.")
-    kluster = data["kluster"] if data["kluster"] in klusternamn else mal["forslag"]["kluster"]
-    return {"huvudsokord": " ".join(data["huvudsokord"].split())[:120],
-            "sekundara_sokord": [s.strip() for s in data["sekundara_sokord"] if s.strip()][:8],
+    kluster = data["kluster"] if data["kluster"] in klusternamn else mal["sammanhang"]["kluster"]
+    huvud = " ".join(data["huvudsokord"].split())
+    if not huvud or len(huvud.split()) > MAX_SOKORD_ORD:
+        raise SaknadFel("AI-förslaget blev inte ett kort sökord. Ange sökorden själv eller försök igen.")
+    return {"huvudsokord": huvud,
+            # Bara korta sökfraser; meningar sorteras bort.
+            "sekundara_sokord": [k for k in (" ".join(x.split()) for x in data["sekundara_sokord"])
+                                 if k and len(k.split()) <= MAX_SOKORD_ORD and k.lower() != huvud.lower()][:8],
             "sokintention": data["sokintention"], "kluster": kluster, "motivering": data["motivering"].strip(),
             "ursprung": "ai"}

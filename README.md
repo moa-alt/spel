@@ -44,10 +44,7 @@ Många brutna länkar pekar på artiklar som ännu inte är skrivna. Sektionen *
 - **Gruppering:** alla länkar till adresser som svarar 404 eller 410 grupperas per adress. För varje adress visas hur många befintliga artiklar som länkar dit, vilka artiklar det är och vilka ankartexter de använder.
 - **Klassificering:** en adress räknas som **planerad** bara i två fall: om en artikel i artikelkön ska publiceras där, eller om du själv har valt *Markera som planerad*. Alla andra adresser är **trasiga**. En avvisad artikel räknas inte som planerad.
 - **Nyckeltal:** fungerande interna länkar, trasiga länkar och planerade mål-URL visas var för sig. Planerade länkar räknas inte som trasiga.
-- **Förslag:** för varje adress föreslås huvudnyckelord, sekundära sökord, sökintention och ämneskluster.
-  - Förslaget beräknas från adressen, ankartexterna och artiklarna som länkar hit, och å, ä och ö återställs från ankartexterna.
-  - *Förbättra förslaget med AI* ger ett AI-förslag (kräver `ANTHROPIC_API_KEY`).
-  - Inga sökvolymer anges.
+- **Sammanhang:** för varje adress beräknas troligt ämneskluster och sökintention från adressen och artiklarna som länkar hit. Inga sökord föreslås automatiskt.
 - **Prioritering:** adresserna sorteras efter
   - antal länkande artiklar
   - om en pelarsida länkar dit
@@ -56,7 +53,13 @@ Många brutna länkar pekar på artiklar som ännu inte är skrivna. Sektionen *
   - relevans för de länkande artiklarna
 
   Skälen visas för varje adress.
-- **Skapa artikel:** knappen öppnar förslaget för redigering och kräver en kryssruta. Artikeln läggs sedan som **utkast** i artikelkön och låses till adressen: genereringen och editorn kan inte ändra adressen. Den genereras först när du väljer det och följer sedan det vanliga flödet med granskning, godkännande och publicering.
+- **Skapa artikel:** dialogen visar den saknade adressen oförändrad.
+  - **Huvudsökord** är tomt från början och obligatoriskt; du skriver det själv. Utan huvudsökord går det inte att lägga artikeln i kön, varken i gränssnittet eller via API:t.
+  - **Sekundära sökord** är tomma från början, valfria och kommaseparerade.
+  - Sökintention och ämneskluster är förvalda från det beräknade sammanhanget och kan ändras.
+  - *Föreslå sökord med AI* (kräver `ANTHROPIC_API_KEY`) visar korta förslag i en separat ruta. Ingenting fylls i förrän du klickar på *Använd* eller *Lägg till* vid ett förslag.
+  - *Lägg till i artikelkön* kräver en kryssruta. Exakt de sökord du angett sparas och används vid generering, metadata och SEO-kontroll.
+  - Artikeln läggs som **utkast** och låses till adressen: genereringen och editorn kan inte ändra adressen. Den genereras först när du väljer det och följer sedan det vanliga flödet med granskning, godkännande och publicering.
 - **Efter publicering:** när artikeln publicerats kontrolleras att den hamnade på rätt adress. Hamnade den någon annanstans loggas en varning. Vid den automatiska omkartläggningen efter publiceringen blir länkarna dit fungerande.
 - **Inget sker automatiskt:** ingen funktion skapar, genererar eller publicerar artiklar utan ett uttryckligt godkännande från dig. Testerna kontrollerar det.
 

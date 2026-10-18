@@ -539,7 +539,8 @@ class Sokvag(BaseModel):
 
 
 class SkapaFranSaknad(Sokvag):
-    huvudsokord: str = Field(min_length=2, max_length=120)
+    # Valideras i endpointen så att ett tomt huvudsökord ger ett begripligt felmeddelande.
+    huvudsokord: str = Field(default="", max_length=120)
     sekundara_sokord: list[str] = Field(default_factory=list, max_length=MAX_SEKUNDARA)
     sokintention: str = Field(default="", max_length=40)
     kluster: str = Field(default="", max_length=120)
@@ -579,6 +580,9 @@ def skapa_fran_saknad(body: SkapaFranSaknad):
     """Lägger en artikel i artikelkön som utkast. Kräver uttrycklig bekräftelse; genererar och publicerar inte."""
     if not body.bekraftad:
         raise HTTPException(400, "Bekräfta att artikeln ska läggas i artikelkön.")
+    if len(normalisera_sokord(body.huvudsokord)) < 2:
+        raise HTTPException(400, "Huvudsökord är obligatoriskt. Ange det själv innan artikeln läggs i artikelkön.")
+    # Exakt de sökord du angett (bara mellanslag rensas och dubbletter tas bort).
     sokord = Sokord(huvudsokord=body.huvudsokord, sekundara_sokord=body.sekundara_sokord)
     try:
         artikel_id = saknade.skapa_artikel(body.sokvag, sokord.huvudsokord, sokord.sekundara_sokord,
