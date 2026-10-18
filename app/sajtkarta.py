@@ -27,7 +27,7 @@ from .planering import _token, likhet
 log = logging.getLogger("studio.sajtkarta")
 
 MAX_SIDOR_PER_TYP = 50  # 50 × 100 = 5 000 objekt per typ
-MAX_LANKKONTROLLER = 200
+MAX_LANKKONTROLLER = 1000
 HOPPA_OVER = ("/wp-content/", "/wp-admin/", "/wp-json/", "/feed", "/tag/", "/author/", "/page/", "?")
 
 SCHEMA = """
@@ -318,10 +318,17 @@ def _amne(s: dict) -> str:
     return f"{s['titel']} {s['sokvag'].replace('-', ' ').replace('/', ' ')}"
 
 
-def analysera() -> dict:
+def analysera(utan_saknade: bool = False) -> dict:
     sidor, lankar, kartlagd, kommersiella = _ladda()
     if not sidor:
-        return {"kartlagd": None, "noder": [], "kanter": [], "kluster": [], "verifierat": {}, "beraknat": {}}
+        return {"kartlagd": None, "noder": [], "kanter": [], "kluster": [], "verifierat": {}, "beraknat": {},
+                "lankstatistik": {"fungerande": 0, "trasiga": 0, "planerade_lankar": 0, "planerade_mal": 0}}
+    # Länkar till adresser som är planerade (i artikelkön eller bekräftade av dig) räknas inte som trasiga.
+    planerade: set[str] = set()
+    if not utan_saknade:
+        from .saknade import planerade_sokvagar
+
+        planerade = planerade_sokvagar()
 
     per_id = {s["id"]: s for s in sidor}
     kategori_nod = {s["wp_id"]: s for s in sidor if s["typ"] == "kategori"}
@@ -332,7 +339,7 @@ def analysera() -> dict:
         if l["status"] == "ok" and l["till_id"]:
             in_fran[l["till_id"]].add(l["fran_id"])
             ut_till[l["fran_id"]].add(l["till_id"])
-        elif l["status"] == "trasig":
+        elif l["status"] == "trasig" and l["till_url"] not in planerade:
             trasiga[l["fran_id"]].append({"url": l["till_url"], "ankartext": l["ankartext"]})
 
     # Kluster: artiklarnas första kategori (verifierat). Sidor placeras efter textlikhet (beräknat).
@@ -426,8 +433,14 @@ def analysera() -> dict:
     kluster = []
     for kid, ids in sorted(medlemmar.items(), key=lambda x: -len(x[1])):
         kluster.append({"id": kid, "namn": kluster_namn.get(kid, kid), "antal": len(ids), "pelare": pelare.get(kid)})
+    lankstatistik = {
+        "fungerande": sum(1 for l in lankar if l["status"] == "ok"),
+        "trasiga": sum(len(v) for v in trasiga.values()),
+        "planerade_lankar": sum(1 for l in lankar if l["status"] == "trasig" and l["till_url"] in planerade),
+        "planerade_mal": len(planerade),
+    }
     return {"kartlagd": kartlagd, "noder": noder, "kanter": kanter, "kluster": kluster,
-            "verifierat": verifierat, "beraknat": beraknat}
+            "verifierat": verifierat, "beraknat": beraknat, "lankstatistik": lankstatistik}
 
 
 def nod_detaljer(sid: int) -> dict | None:

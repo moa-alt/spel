@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 
-from . import auth, config, db, jobb, lankforslag, publicering, sajtkarta, seo_ai
+from . import auth, config, db, jobb, lankforslag, publicering, saknade, sajtkarta, seo_ai
 from .planering import MAX_SEKUNDARA, CsvFel, liknande, normalisera_sokord, tolka_csv
 from .publicering import PubliceringsFel
 from .render import wordpress_block
@@ -39,6 +39,7 @@ async def lifespan(_app: FastAPI):
     sajtkarta.init()
     seo_ai.init()
     lankforslag.init()
+    saknade.init()
     uppgift = asyncio.create_task(publicering.schemalaggare()) if config.settings.schemalaggare else None
     yield
     if uppgift:
@@ -290,6 +291,9 @@ def spara_innehall(artikel_id: int, article: Article):
     innehall = article.model_dump()
     innehall["huvudsokord"] = artikel["huvudsokord"]
     innehall["sekundara_sokord"] = artikel["sekundara_sokord"]
+    if artikel.get("mal_slug"):
+        # Artikeln är skapad för en adress som befintliga artiklar redan länkar till.
+        innehall["slug"] = artikel["mal_slug"]
     if innehall == Article(**artikel["innehall"]).model_dump() | {
         "huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]
     }:
@@ -526,6 +530,62 @@ def seokarta_till_kon(forslag_id: int):
 def seokarta_avvisa_forslag(forslag_id: int):
     seo_ai.avvisa(forslag_id)
     return {"ok": True}
+
+
+# ---------- Saknade mål-URL ----------
+
+class Sokvag(BaseModel):
+    sokvag: str = Field(min_length=1, max_length=500)
+
+
+class SkapaFranSaknad(Sokvag):
+    huvudsokord: str = Field(min_length=2, max_length=120)
+    sekundara_sokord: list[str] = Field(default_factory=list, max_length=MAX_SEKUNDARA)
+    sokintention: str = Field(default="", max_length=40)
+    kluster: str = Field(default="", max_length=120)
+    bekraftad: bool = False
+
+
+@app.get("/api/saknade")
+def lista_saknade():
+    return {"saknade": saknade.saknade()}
+
+
+@app.post("/api/saknade/planera")
+def planera_saknad(body: Sokvag):
+    try:
+        saknade.markera_planerad(body.sokvag)
+    except saknade.SaknadFel as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
+
+
+@app.post("/api/saknade/ta-bort-planering")
+def ta_bort_planering(body: Sokvag):
+    saknade.ta_bort_planering(body.sokvag)
+    return {"ok": True}
+
+
+@app.post("/api/saknade/ai-forslag")
+async def saknad_ai_forslag(body: Sokvag):
+    try:
+        return await saknade.ai_forslag(body.sokvag)
+    except saknade.SaknadFel as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/saknade/skapa-artikel", status_code=201)
+def skapa_fran_saknad(body: SkapaFranSaknad):
+    """Lägger en artikel i artikelkön som utkast. Kräver uttrycklig bekräftelse; genererar och publicerar inte."""
+    if not body.bekraftad:
+        raise HTTPException(400, "Bekräfta att artikeln ska läggas i artikelkön.")
+    sokord = Sokord(huvudsokord=body.huvudsokord, sekundara_sokord=body.sekundara_sokord)
+    try:
+        artikel_id = saknade.skapa_artikel(body.sokvag, sokord.huvudsokord, sokord.sekundara_sokord,
+                                           sokintention=body.sokintention, kluster=body.kluster)
+    except saknade.SaknadFel as e:
+        raise HTTPException(409, str(e))
+    return {"artikel_id": artikel_id, "status": "utkast"}
 
 
 # ---------- Länkförslag ----------

@@ -67,6 +67,9 @@ async def _kor(artikel_id: int) -> None:
                         resultat = h["artikel"]
                 if resultat is None:
                     raise GenereringsFel("Genereringen avslutades utan resultat. Försök igen.")
+            # En artikel som skapats för en saknad adress måste publiceras just där.
+            if artikel.get("mal_slug"):
+                resultat["slug"] = artikel["mal_slug"]
             resultat["html"], resultat["internlankar"] = seo_ai.kontrollera_lankar(
                 resultat["html"], {m["url"] for m in lankmal})
             db.byt_status(artikel_id, ("genereras",), "granskas", innehall=resultat, fel=None, andringar=None)

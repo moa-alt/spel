@@ -101,6 +101,7 @@ def _rad(r: sqlite3.Row, med_innehall: bool) -> dict:
         "godkand_hash": r["godkand_hash"],
         "wp_post_id": r["wp_post_id"],
         "publiceras_at": r["publiceras_at"],
+        "mal_slug": r["mal_slug"] if "mal_slug" in r.keys() else None,
         "skapad": r["skapad"],
         "uppdaterad": r["uppdaterad"],
         "har_innehall": r["innehall"] is not None,

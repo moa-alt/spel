@@ -426,7 +426,7 @@ input[type=date], input[type=time] { min-width: 0; -webkit-appearance: none; app
 /* ---------- SEO-karta ---------- */
 .seo-meta { margin-top: 6px !important; font-size: 13px; }
 .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
-.stat:first-child { grid-column: 1 / -1; }
+.stat .delt { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
 .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; }
 .stat b { display: block; font-family: var(--font-display); font-weight: 500; font-size: 28px; line-height: 1.1; }
 .stat span { color: var(--muted); font-size: 13px; }
@@ -489,6 +489,7 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
 .tag-ok { background: var(--brand-soft); color: var(--brand); }
 .tag-warn { background: var(--warn-soft); color: var(--warn); }
 .tag-ai { background: var(--info-soft); color: var(--info); }
+.tag-bad { background: var(--bad-soft); color: var(--bad); }
 .seo-section { margin-bottom: 16px; }
 .seo-section .card-title { flex-wrap: wrap; justify-content: flex-start; }
 .problem-grid { display: grid; gap: 12px; }
@@ -556,6 +557,24 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
 .rek li { padding: 8px 10px; border-radius: 10px; background: var(--brand-soft); color: var(--brand); overflow-wrap: anywhere; }
 .rek li.beraknad { background: var(--surface-2); color: var(--text); }
 
+.missing { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ms { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; display: grid; gap: 8px; }
+.ms-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ms-head code { font-size: 14px; overflow-wrap: anywhere; }
+.ms-count { font-size: 14px; }
+.ms-count b { font-family: var(--font-display); font-size: 20px; font-weight: 500; margin-right: 4px; }
+.ms-forslag { font-size: 14px; line-height: 1.5; }
+.ms-why { font-size: 13px; color: var(--muted); }
+.ms details summary { cursor: pointer; font-size: 13px; color: var(--brand); font-weight: 600; }
+.ms details ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+.ms-plan { font-size: 13px; background: var(--brand-soft); color: var(--brand); border-radius: 10px; padding: 8px 10px; }
+.ms-knappar { display: flex; flex-wrap: wrap; gap: 8px; }
+.prio { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+.prio-hög { border-color: var(--brand); color: var(--brand); }
+.create-why, .create-source { font-size: 13px; margin: -4px 0 12px !important; }
+#createAi { margin: 0 0 14px; }
+.slug-lock { display: block; margin-top: 6px; font-size: 12px; }
+
 /* Pekskärmar: dra-och-släpp fungerar inte, så pilarna används i stället. */
 @media (hover: hover) and (pointer: fine) {
   .q-handle { display: block; }
@@ -582,8 +601,7 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
 
   .queue-view { padding-top: 40px; }
   .pub-grid { grid-template-columns: 1fr 1fr; }
-  .stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  .stat:first-child { grid-column: auto; }
+  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .seo-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #graph { height: 520px; }
   .problem-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -638,6 +656,7 @@ select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 4px 
   .workspace { order: 2; }
   .sidebar { order: 1; position: sticky; top: calc(var(--topbar-h) + 24px); }
   .seo-view { max-width: 1320px; }
+  .stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .seo-main { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
   .seo-detail { position: sticky; top: calc(var(--topbar-h) + 24px); max-height: calc(100vh - var(--topbar-h) - 48px); overflow: auto; }
   #graph { height: 600px; }

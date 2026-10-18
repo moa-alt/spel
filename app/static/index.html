@@ -157,6 +157,19 @@
         <div class="problem-grid" id="verifierat"></div>
       </section>
 
+      <section class="card seo-section" id="missingSection">
+        <div class="section-head">
+          <h2 class="card-title">Saknade sidor</h2>
+          <div class="seg" role="group" aria-label="Visa">
+            <button class="seg-btn active" data-saknadfilter="" type="button">Alla</button>
+            <button class="seg-btn" data-saknadfilter="trasig" type="button">Trasiga</button>
+            <button class="seg-btn" data-saknadfilter="planerad" type="button">Planerade</button>
+          </div>
+        </div>
+        <p class="muted pub-text">Adresser som befintliga artiklar länkar till men som inte finns (svarar 404). <span class="tag tag-bad">Trasig</span> betyder att ingen artikel är planerad. <span class="tag tag-ok">Planerad</span> betyder att en artikel i artikelkön ska publiceras på adressen, eller att du har bekräftat den. Listan är sorterad efter prioritet: antal länkande artiklar, länkar från pelarsidor, klustrets storlek och sökintention. <strong>Skapa artikel</strong> lägger bara ett utkast i artikelkön; ingenting genereras eller publiceras utan ditt godkännande.</p>
+        <ul class="missing" id="missingList"></ul>
+      </section>
+
       <section class="card seo-section">
         <h2 class="card-title">Bedömningar att kontrollera <span class="tag tag-warn">Beräknat</span></h2>
         <p class="muted pub-text">Beräknat från likhet mellan titlar och adresser. Kontrollera innan du agerar.</p>
@@ -401,6 +414,7 @@
               <label class="field">
                 <span class="label">URL-slug</span>
                 <div class="slug-input"><span id="slugPrefix">klimathemmet.se/</span><input id="slug" type="text"></div>
+                <small class="muted slug-lock" id="slugLock" hidden>Adressen är låst eftersom befintliga artiklar redan länkar hit.</small>
               </label>
               <div class="field">
                 <span class="label">Sökord</span>
@@ -458,6 +472,31 @@
       <div class="dialog-actions">
         <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Avbryt</button>
         <button class="btn btn-primary" id="dialogOk" value="ok" type="submit"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dialog dialog-wide" id="createDialog">
+    <form method="dialog" id="createForm">
+      <h2>Skapa artikel</h2>
+      <p class="muted">Artikeln läggs som <strong>utkast</strong> i artikelkön och låses till adressen <code id="createPath"></code>, så att de befintliga länkarna börjar fungera när den publicerats. Den genereras först när du väljer det och publiceras aldrig utan ditt godkännande.</p>
+      <p class="muted create-why" id="createWhy"></p>
+      <label class="field"><span class="label">Huvudnyckelord</span><input id="createHuvud" type="text" maxlength="120"></label>
+      <label class="field"><span class="label">Sekundära sökord <small>kommaseparerade</small></span><input id="createSek" type="text"></label>
+      <div class="pub-fields">
+        <label class="field"><span class="label">Sökintention</span>
+          <select id="createIntent"><option value="informativ">Informativ</option><option value="kommersiell">Kommersiell</option><option value="transaktionell">Transaktionell</option><option value="navigerande">Navigerande</option></select></label>
+        <label class="field"><span class="label">Ämneskluster</span><select id="createKluster"></select></label>
+      </div>
+      <p class="muted create-source" id="createSource"></p>
+      <button class="btn btn-ghost btn-sm" id="createAi" type="button">Förbättra förslaget med AI</button>
+      <label class="confirm-check">
+        <input type="checkbox" id="createConfirm">
+        <span>Lägg artikeln i artikelkön som utkast.</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Avbryt</button>
+        <button class="btn btn-primary" id="createOk" value="ok" type="submit" disabled>Lägg i artikelkön</button>
       </div>
     </form>
   </dialog>

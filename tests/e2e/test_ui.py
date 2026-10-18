@@ -350,3 +350,42 @@ def test_seo_karta_utan_wordpress_adress(server, browser):
     assert "Ange sajtens adress (WP_URL)" in page.text_content("#seoEmptyText")
     assert page.locator("#mapBtn").is_disabled()
     ctx.close()
+
+
+@pytest.mark.parametrize("enhet", ["iphone", "dator"])
+def test_saknade_sidor_och_skapa_artikel(sajt_server, browser, enhet):
+    ctx = browser.new_context(**ENHETER[enhet])
+    page = ctx.new_page()
+    fel = []
+    page.on("pageerror", lambda e: fel.append(str(e)))
+    page.goto(sajt_server)
+    page.click('.view-btn[data-view="seo"]')
+    page.locator("#mapBtn:not([disabled])").wait_for()
+    page.click("#mapBtn")
+    page.locator("#mapBtn:not([disabled])").wait_for()
+    page.locator("#missingList .ms").first.wait_for()
+    stats = page.text_content("#seoStats")
+    assert "fungerande interna länkar" in stats and "trasiga länkar" in stats and "planerade mål-URL" in stats
+    kryp = page.locator("#missingList .ms", has_text="/fukt-i-krypgrund/")
+    assert "2" in kryp.locator(".ms-count b").text_content()
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-11-saknade")
+
+    if kryp.locator("[data-ms=skapa]").count():
+        kryp.locator("[data-ms=skapa]").click()
+        assert page.locator("#createHuvud").input_value() == "fukt i krypgrund"
+        assert page.locator("#createOk").is_disabled()
+        _skarmbild(page, f"{enhet}-12-skapa-dialog")
+        page.check("#createConfirm")
+        page.click("#createOk")
+        page.locator("#toast", has_text="utkast").wait_for()
+    page.locator("#missingList .ms", has_text="/fukt-i-krypgrund/").locator(".tag-ok").wait_for()
+    assert "Planerad artikel" in page.locator("#missingList .ms", has_text="/fukt-i-krypgrund/").text_content()
+
+    # Artikeln ligger i kön som utkast, låst till adressen – inget har genererats eller publicerats.
+    page.click('.view-btn[data-view="queue"]')
+    rad = page.locator(".q-item").filter(has=page.locator(".q-kw", has_text="fukt i krypgrund"))
+    rad.locator(".s-utkast").wait_for()
+    assert "/fukt-i-krypgrund/" in rad.text_content()
+    assert fel == []
+    ctx.close()

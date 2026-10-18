@@ -295,6 +295,9 @@ async def _publicera(slot: dict, nu: datetime, transport=None) -> None:
         from .lankforslag import artikel_publicerad
 
         artikel_publicerad(slot["artikel_id"], post.get("link") or "")
+        from .saknade import artikel_publicerad as saknad_publicerad
+
+        saknad_publicerad(slot["artikel_id"], post.get("link") or "")
     else:
         _avsluta(slot, "utkast", "godkand", "wp_utkast_skapat",
                  f"Utkastläge: utkast skapat i WordPress (inlägg {post['id']}), inget publicerades.",

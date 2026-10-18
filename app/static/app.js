@@ -210,6 +210,9 @@ function setArticle(article) {
   $("#meta_titel").value = article.meta_titel;
   $("#meta_beskrivning").value = article.meta_beskrivning;
   $("#slug").value = article.slug;
+  const last = !!state.current?.mal_slug;
+  $("#slug").readOnly = last;
+  $("#slugLock").hidden = !last;
   $("#htmlEditor").value = article.html;
   renderKeywords();
   renderIntent();
@@ -589,6 +592,7 @@ function renderQueue() {
     }
     if (a.fel) notes.push(`<div class="q-note bad">⚠ ${esc(a.fel)}</div>`);
     if (a.andringar) notes.push(`<div class="q-note warn">Begärda ändringar: ${esc(a.andringar)}</div>`);
+    if (a.mal_slug) notes.push(`<div class="q-note info">Ska publiceras på /${esc(a.mal_slug)}/ – befintliga artiklar länkar redan hit</div>`);
     if (a.status === "schemalagd" && a.publiceras_at) notes.push(`<div class="q-note info">Publiceras ${formatDag(a.publiceras_at)}</div>`);
     if (a.liknande.length) {
       notes.push(`<div class="q-note warn">Liknar ${a.liknande.map((l) => `<a href="#" data-act="goto" data-id="${l.id}">”${esc(l.huvudsokord)}”</a>`).join(", ")} – risk att artiklarna konkurrerar om samma sökningar</div>`);
@@ -815,7 +819,8 @@ const HANDLING_NAMN = {
   publicering_misslyckad: "Publicering misslyckades", publicering_forsok: "Nytt försök planerat", publicering_missad: "Publiceringsdag missad",
   publicering_pausad: "Publicering pausad", publicering_aterupptagen: "Publicering återupptagen",
   genererad: "Text genererad", fran_seo_karta: "Från SEO-kartan",
-  lank_tillagd: "Länk tillagd", lank_simulerad: "Länk simulerad", lank_aterstalld: "Länkar återställda", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
+  lank_tillagd: "Länk tillagd", lank_simulerad: "Länk simulerad", lank_aterstalld: "Länkar återställda",
+  fran_saknad_url: "Skapad för saknad adress", mal_publicerad: "Publicerad på planerad adress", mal_fel_adress: "Publicerad på fel adress", skickad_till_granskning: "Skickad till granskning", godkand: "Godkänd",
   andringar_begarda: "Ändringar begärda", avvisad: "Avvisad", aterstalld: "Återställd",
   godkannande_aterkallat: "Godkännande återkallat", godkannande_upphavt: "Godkännande upphävt",
 };
@@ -1079,18 +1084,23 @@ async function loadSeo() {
   sel.value = d.kluster.some((k) => k.id === fore) ? fore : "";
   const v = d.verifierat;
   const lf = d.lankforslag_antal || {};
+  const ls = d.lankstatistik;
   const stats = [
-    [d.noder.length, "kartlagda sidor"], [v.isolerade.length, "isolerade sidor"],
-    [v.trasiga_lankar.reduce((n, x) => n + x.lankar.length, 0), "brutna interna länkar"],
-    [d.kluster.filter((k) => k.id !== "ovrigt").length, "ämneskluster"], [(lf.ny || 0) + (lf.godkand || 0), "väntande länkförslag"],
+    [d.noder.length, "kartlagda sidor", `${d.kluster.filter((k) => k.id !== "ovrigt").length} ämneskluster`],
+    [ls.fungerande, "fungerande interna länkar", ""],
+    [ls.trasiga, "trasiga länkar", "utan planerad artikel"],
+    [ls.planerade_mal, "planerade mål-URL", `${ls.planerade_lankar} länkar väntar på artikel`],
+    [v.isolerade.length, "isolerade sidor", ""],
+    [(lf.ny || 0) + (lf.godkand || 0), "väntande länkförslag", ""],
   ];
-  $("#seoStats").innerHTML = stats.map(([n, t]) => `<div class="stat"><b>${n.toLocaleString("sv-SE")}</b><span>${t}</span></div>`).join("");
+  $("#seoStats").innerHTML = stats.map(([n, t, delt]) => `<div class="stat"><b>${n.toLocaleString("sv-SE")}</b><span>${t}</span>${delt ? `<span class="delt">${esc(delt)}</span>` : ""}</div>`).join("");
   layoutGraph();
   renderGraph();
   renderProblems();
   renderForslag();
   renderNodeTable();
   loadLinks();
+  loadSaknade();
 }
 
 function nodSynlig(n) {
@@ -1577,6 +1587,106 @@ $("#aiLinksBtn").addEventListener("click", async () => {
   try { const r = await api("/api/lankforslag/ai", {}); toast(`${r.nya} nya AI-förslag`); await loadSeo(); }
   catch (err) { toast(err.message); }
   finally { btn.textContent = "Låt AI föreslå länkar"; btn.disabled = false; }
+});
+
+/* ---------- Saknade sidor ---------- */
+const saknad = { lista: [], filter: "", aktuell: null };
+
+async function loadSaknade() {
+  try { saknad.lista = (await api("/api/saknade")).saknade; } catch (err) { toast(err.message); return; }
+  renderSaknade();
+}
+
+function renderSaknade() {
+  const lista = saknad.lista.filter((m) => !saknad.filter || m.klass === saknad.filter);
+  $("#missingSection").hidden = !saknad.lista.length;
+  $("#missingList").innerHTML = lista.length ? lista.map((m) => {
+    const f = m.forslag;
+    const plan = m.artikel
+      ? `<div class="ms-plan">Planerad artikel: ”${esc(m.artikel.huvudsokord)}” (${esc(STATUS_NAMN[m.artikel.status] || m.artikel.status)})</div>`
+      : m.klass === "planerad" ? `<div class="ms-plan">Bekräftad som planerad av dig. Ingen artikel finns i kön ännu.</div>` : "";
+    return `<li class="ms">
+      <div class="ms-head"><code>${esc(m.sokvag)}</code>
+        <span class="tag ${m.klass === "planerad" ? "tag-ok" : "tag-bad"}">${m.klass === "planerad" ? "Planerad" : "Trasig"}</span>
+        <span class="prio prio-${m.prioritet.niva}">${m.prioritet.niva} prioritet</span></div>
+      <div class="ms-count"><b>${m.antal}</b>${m.antal === 1 ? "befintlig artikel" : "befintliga artiklar"} länkar hit</div>
+      ${!m.artikel ? `<div class="ms-forslag">Förslag: <b>${esc(f.huvudsokord)}</b> · ${esc(f.sokintention)}${f.kluster ? ` · ${esc(f.kluster)}` : ""} <span class="tag tag-warn">Beräknat</span></div>` : ""}
+      <div class="ms-why">${esc(m.prioritet.skal.join(" · "))}</div>
+      ${plan}
+      <details><summary>Visa länkande artiklar</summary><ul>${m.kallor.map((k) => `<li><button class="lank" type="button" data-nod="${k.id}">${esc(k.titel)}</button> <span class="muted">”${esc(k.ankartext)}”</span></li>`).join("")}</ul></details>
+      <div class="ms-knappar">
+        ${m.artikel ? `<button class="btn btn-ghost btn-sm" type="button" data-ms="oppna" data-id="${m.artikel.id}">Öppna artikeln</button>`
+          : `<button class="btn btn-primary btn-sm" type="button" data-ms="skapa" data-sokvag="${esc(m.sokvag)}">Skapa artikel</button>`}
+        ${!m.artikel && m.klass === "trasig" ? `<button class="btn btn-ghost btn-sm" type="button" data-ms="planera" data-sokvag="${esc(m.sokvag)}">Markera som planerad</button>` : ""}
+        ${!m.artikel && m.bekraftad ? `<button class="btn btn-ghost btn-sm" type="button" data-ms="avplanera" data-sokvag="${esc(m.sokvag)}">Ta bort planering</button>` : ""}
+      </div>
+    </li>`;
+  }).join("") : `<li class="pub-empty">Inga ${saknad.filter === "planerad" ? "planerade" : saknad.filter === "trasig" ? "trasiga" : "saknade"} adresser.</li>`;
+}
+$$("[data-saknadfilter]").forEach((b) => b.addEventListener("click", () => {
+  saknad.filter = b.dataset.saknadfilter;
+  $$("[data-saknadfilter]").forEach((x) => x.classList.toggle("active", x === b));
+  renderSaknade();
+}));
+
+$("#missingList").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ms]");
+  if (!b) return;
+  const sokvag = b.dataset.sokvag;
+  try {
+    if (b.dataset.ms === "oppna") return openArticle(Number(b.dataset.id));
+    if (b.dataset.ms === "skapa") return oppnaSkapa(saknad.lista.find((m) => m.sokvag === sokvag));
+    if (b.dataset.ms === "planera") { await api("/api/saknade/planera", { sokvag }); toast("Adressen är markerad som planerad"); }
+    if (b.dataset.ms === "avplanera") { await api("/api/saknade/ta-bort-planering", { sokvag }); toast("Planeringen är borttagen"); }
+    await loadSeo();
+  } catch (err) { toast(err.message); }
+});
+
+function fyllSkapa(f) {
+  $("#createHuvud").value = f.huvudsokord;
+  $("#createSek").value = f.sekundara_sokord.join(", ");
+  $("#createIntent").value = f.sokintention;
+  $("#createKluster").value = f.kluster || "";
+  $("#createSource").innerHTML = f.ursprung === "ai"
+    ? `<span class="tag tag-ai">AI-förslag</span> ${esc(f.motivering || "")}`
+    : `<span class="tag tag-warn">Beräknat</span> från adressen och ankartexterna. Inga sökvolymer anges.`;
+}
+
+function oppnaSkapa(m) {
+  saknad.aktuell = m;
+  $("#createPath").textContent = m.sokvag;
+  $("#createWhy").textContent = `${m.antal} befintliga artiklar länkar redan hit. Prioritet: ${m.prioritet.niva} (${m.prioritet.skal.join(", ")}).`;
+  $("#createKluster").innerHTML = `<option value="">Inget valt</option>` + (seo.data?.kluster || []).filter((k) => k.id !== "ovrigt")
+    .map((k) => `<option value="${esc(k.namn)}">${esc(k.namn)}</option>`).join("");
+  fyllSkapa(m.forslag);
+  $("#createConfirm").checked = false;
+  $("#createOk").disabled = true;
+  $("#createAi").disabled = !seo.data?.ai;
+  $("#createAi").title = seo.data?.ai ? "" : "Kräver ANTHROPIC_API_KEY på servern";
+  $("#createDialog").showModal();
+}
+$("#createConfirm").addEventListener("change", (e) => { $("#createOk").disabled = !e.target.checked || $("#createHuvud").value.trim().length < 2; });
+$("#createHuvud").addEventListener("input", () => { $("#createOk").disabled = !$("#createConfirm").checked || $("#createHuvud").value.trim().length < 2; });
+$("#createAi").addEventListener("click", async () => {
+  const btn = $("#createAi");
+  btn.disabled = true; btn.textContent = "AI tänker…";
+  try { fyllSkapa(await api("/api/saknade/ai-forslag", { sokvag: saknad.aktuell.sokvag })); }
+  catch (err) { toast(err.message); }
+  finally { btn.textContent = "Förbättra förslaget med AI"; btn.disabled = false; }
+});
+$("#createDialog").addEventListener("close", async () => {
+  if ($("#createDialog").returnValue !== "ok" || !$("#createConfirm").checked) return;
+  try {
+    const r = await api("/api/saknade/skapa-artikel", {
+      sokvag: saknad.aktuell.sokvag, bekraftad: true, huvudsokord: $("#createHuvud").value,
+      sekundara_sokord: $("#createSek").value.split(",").map((x) => x.trim()).filter(Boolean),
+      sokintention: $("#createIntent").value, kluster: $("#createKluster").value,
+    });
+    toast(`Artikeln ligger i artikelkön som utkast (låst till ${saknad.aktuell.sokvag})`);
+    await loadSeo();
+    loadQueue();
+    return r;
+  } catch (err) { toast(err.message); }
 });
 
 /* ---------- Start ---------- */

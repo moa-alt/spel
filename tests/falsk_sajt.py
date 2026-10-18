@@ -43,11 +43,13 @@ class FalskSajt:
             self._post(2, "ftx-ventilation", "FTX-ventilation i villa",
                        f"<p>Se {a('ventilation-i-gamla-hus', 'ventilation i äldre hus')}.</p>"
                        "<p>Ett vanligt problem är fukt i källare när ventilationen inte räcker till i äldre hus.</p>", 10),
-            self._post(3, "fukt-i-kallare", "Fukt i källare", f"<p>Mer om {a('ventilation-i-gamla-hus', 'ventilation')}.</p>", 11),
+            self._post(3, "fukt-i-kallare", "Fukt i källare", f"<p>Mer om {a('ventilation-i-gamla-hus', 'ventilation')}.</p>"
+                       f"<p>Ett vanligt problem i äldre hus är {a('fukt-i-krypgrund', 'fukt i krypgrund')} som sprider sig uppåt.</p>", 11),
             self._post(4, "ventilation-gamla-hus-tips", "Ventilation i gamla hus – tips",
                        "<p>Tips utan länkar.</p>"
                        "<p>Många som renoverar funderar på FTX-ventilation, men i ett gammalt hus fungerar självdrag &amp; vädring ofta bättre.</p>", 10),
-            self._post(5, "fran-ventilation-till-ftx", "Från självdrag till FTX-ventilation", f"<p>{a('ventilation-i-gamla-hus', 'pelaren')}</p>", 10),
+            self._post(5, "fran-ventilation-till-ftx", "Från självdrag till FTX-ventilation", f"<p>{a('ventilation-i-gamla-hus', 'pelaren')}</p>"
+                       f"<p>Läs också om {a('fukt-i-krypgrund', 'fukt i krypgrunden')} innan du byter ventilationssystem i huset.</p>", 10),
         ]
 
     def _sidor(self):
@@ -57,6 +59,10 @@ class FalskSajt:
 
     def raw(self, pid, typ="posts"):
         return self.objekt[typ][pid]["raw"]
+
+    def publicera(self, pid, slug, titel, html, kategori=10):
+        """Som om en ny artikel publicerats på sajten (t.ex. av publiceringskön)."""
+        self.objekt["posts"][pid] = self._post(pid, slug, titel, html, kategori)
 
     def redigera_manuellt(self, pid, ny_raw, typ="posts"):
         """Som om någon redigerat inlägget direkt i WordPress."""
@@ -73,7 +79,10 @@ class FalskSajt:
 
     def svar(self, metod: str, path: str, params: dict, body: bytes | None) -> tuple[int, object, dict]:
         if metod == "HEAD":
-            return (404 if "borttagen" in path else 200), None, {}
+            # Som en riktig sajt: 404 för allt som inte finns.
+            kanda = {o["link"].removeprefix(self.bas) for t in self.objekt.values() for o in t.values()}
+            kanda |= {k["link"].removeprefix(self.bas) for k in self.kategorier}
+            return (200 if path.rstrip("/") + "/" in kanda else 404), None, {}
         if path == "/wp-json/wp/v2/categories":
             return (200, self.kategorier, {"X-WP-TotalPages": "1"}) if params.get("page") == "1" else (400, {}, {})
         for typ in ("posts", "pages"):
