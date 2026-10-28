@@ -1,0 +1,36 @@
+# Automatiska tester vid varje push och pull request. Driftsätter ingenting och använder inga hemligheter.
+# Används också av "Driftsätt till Fly.io" innan något driftsätts.
+name: Tester
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  tester:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # samma som Dockerfile
+          cache: pip
+
+      - name: Installera beroenden
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Installera webbläsare för gränssnittstesterna
+        run: python -m playwright install --with-deps chromium
+
+      # Testerna når aldrig klimathemmet.se, OpenAI eller Anthropic: alla externa anrop är mockade och spärrade.
+      - name: Kör alla tester
+        run: python -m pytest -q -p no:cacheprovider
+
+      - name: Kontrollera driftkonfigurationen
+        run: python scripts/kontrollera_drift.py

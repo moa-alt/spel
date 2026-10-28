@@ -70,7 +70,100 @@ Priserna kommer från Fly.io:s prislista i oktober 2026 och kan ändras. Fly.io 
   - Serverns tekniska loggar ser du med `fly logs`. Där finns WordPress-fel med statuskod, återförsök och vilken instans som håller schemaläggarlåset.
   - Inga nycklar eller lösenord loggas.
 
-## Steg för steg
+## Driftsättning via GitHub Actions (rekommenderat, utan Fly CLI)
+
+Allt görs i webbläsaren, på fly.io och github.com. Repot har tre workflows:
+
+| Workflow | Startas | Vad den gör |
+|---|---|---|
+| **Tester** | Automatiskt vid varje push och pull request | Kör alla tester och kontrollerar driftkonfigurationen. Driftsätter ingenting och använder inga hemligheter. |
+| **Förbered Fly.io** | Bara manuellt, med ordet `FORBERED` | Skapar appen och volymen om de saknas och lägger in runtime-hemligheterna på Fly.io. Startar ingen maskin. |
+| **Driftsätt till Fly.io** | Bara manuellt, med ordet `DRIFTSATT` | Kör alla tester, kontrollerar säkerheten, driftsätter en maskin och kontrollerar resultatet. |
+
+**Spärrar i driftsättningen.** Workflowen stoppar om något av följande inte stämmer:
+- Publiceringsläget i `fly.toml` är `simulering`.
+- `STUDIO_PUBLICERING` finns inte som hemlighet hos Fly.io.
+- Volymen finns.
+- Inloggning och sessionsnyckel är inlagda.
+- Det finns högst en maskin.
+
+**Kontroller efter driftsättningen:**
+- `/healthz` svarar över HTTPS.
+- Sidor kräver inloggning (svar 401).
+- HTTP leds vidare till HTTPS.
+- Exakt en maskin kör.
+- Loggen visar `publiceringsläge simulering`.
+
+**Hemligheter.**
+- `FLY_API_TOKEN` och inloggningsuppgifterna sparas som GitHub Secrets.
+- Workflowen *Förbered Fly.io* skickar runtime-hemligheterna vidare till Fly.io via stdin och skriver bara ut deras namn.
+- GitHub maskerar alla secrets i loggarna. Repot är offentligt, så loggarna kan läsas av alla, men de innehåller inga hemliga värden.
+- Sessionsnyckeln slumpas fram i workflowen, maskeras och skickas direkt till Fly.io.
+
+### Steg 1 – Fly.io: konto och token (gratis)
+
+1. Skapa ett konto på https://fly.io och slå på tvåstegsverifiering.
+2. Lägg in ett betalkort under *Billing*. Fly.io kräver det innan appar och volymer kan skapas.
+3. Skapa en token som GitHub får använda:
+   1. Öppna https://fly.io/dashboard och välj organisationen **personal**.
+   2. Öppna **Tokens** och skapa en ny token med namnet `github-actions` och en begränsad giltighetstid, till exempel ett år.
+   3. Kopiera token direkt; den visas bara en gång. Klistra aldrig in den i en chatt.
+
+   Hittar du inte *Tokens* under organisationen finns motsvarande under ditt konto, *Account → Access Tokens*. Token behöver kunna skapa appar och volymer, eftersom *Förbered Fly.io* gör det.
+
+### Steg 2 – GitHub: secrets och miljö
+
+Gå till https://github.com/moa-alt/spel → **Settings → Secrets and variables → Actions**.
+
+**Fliken *Secrets* → *New repository secret*, en i taget:**
+
+| Namn | Värde | Krävs |
+|---|---|---|
+| `FLY_API_TOKEN` | Token från steg 1 | Ja |
+| `STUDIO_USER` | Ditt användarnamn till studion, t.ex. `moa` | Ja |
+| `STUDIO_PASSWORD` | Ett långt, unikt lösenord, minst 12 tecken | Ja |
+| `OPENAI_API_KEY` | Din OpenAI-nyckel | För bilder |
+| `ANTHROPIC_API_KEY` | Din Anthropic-nyckel | För AI-text |
+| `WP_USER`, `WP_APP_PASSWORD` | WordPress-användare och applikationslösenord | Nej, vänta gärna |
+
+`STUDIO_SESSION_SECRET` behöver du inte skapa; den slumpas fram automatiskt. WordPress-uppgifterna används inte så länge läget är `simulering`.
+
+**Fliken *Variables* (bara om appnamnet `klimathemmet-studio` är upptaget hos Fly.io):** *New repository variable*, namn `FLY_APP` och värde till exempel `klimathemmet-studio-moa`.
+
+**Rekommenderat: kräv ditt eget godkännande före varje körning.**
+1. Gå till **Settings → Environments → New environment**, skriv namnet `fly-produktion` och klicka *Configure environment*.
+2. Bocka i **Required reviewers**, lägg till dig själv (`moa-alt`) och klicka *Save protection rules*.
+3. Under *Deployment branches and tags*, välj *Selected branches and tags* och lägg till `claude/sweet-allen-aid5yk`.
+
+Då väntar både förberedelsen och driftsättningen på att du klickar *Approve and deploy*.
+
+### Steg 3 – Kör *Förbered Fly.io* (skapar betalda resurser)
+
+Från och med det här steget debiteras volymen, cirka 0,15 USD/mån. Ingen maskin startas.
+
+1. Gå till **Actions** → **Förbered Fly.io** → **Run workflow**.
+2. Välj grenen `claude/sweet-allen-aid5yk`, skriv `FORBERED` i rutan och låt organisationen vara `personal`.
+3. Klicka **Run workflow**. Godkänn körningen om du har slagit på *Required reviewers*.
+4. Kontrollera i loggen att raderna med ✓ visar appen, volymen och namnen på hemligheterna, aldrig deras värden.
+
+När körningen är klar ligger runtime-hemligheterna på Fly.io. Du kan då ta bort `STUDIO_PASSWORD`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` och WordPress-uppgifterna från GitHub, så att de bara finns på ett ställe. Behåll `FLY_API_TOKEN` och `STUDIO_USER`. En ny körning lägger bara in de secrets som finns kvar i GitHub.
+
+### Steg 4 – Kör *Driftsätt till Fly.io* (startar maskinen)
+
+Från och med det här steget debiteras maskinen, cirka 3,7 USD/mån.
+
+1. Gå till **Actions** → **Driftsätt till Fly.io** → **Run workflow**.
+2. Välj grenen `claude/sweet-allen-aid5yk`, skriv `DRIFTSATT` och klicka **Run workflow**.
+3. Först körs alla tester, cirka 5–10 minuter. Därefter körs kontrollerna, driftsättningen och kontrollerna efteråt. Godkänn steget om du har slagit på *Required reviewers*.
+4. Öppna `https://klimathemmet-studio.fly.dev` (eller ditt eget appnamn) och logga in med `STUDIO_USER` och `STUDIO_PASSWORD`.
+
+### Senare uppdateringar
+
+Varje push kör *Tester* automatiskt, men ingenting driftsätts. Du driftsätter en ny version genom att köra *Driftsätt till Fly.io* igen. Databasen, bilderna och kalendern ligger kvar på volymen.
+
+Säkerhetskopiering och återställning beskrivs längre ner. Kommandona där kräver Fly CLI. Den kompletta kopian kan du alltid ladda ner med knappen i *Publicering → Säkerhetskopia*.
+
+## Alternativ: steg för steg med Fly CLI på din Mac
 
 Kör ett kommando i taget i Terminal på din Mac, i projektmappen. Steg 2 och framåt skapar resurser hos Fly.io; kör dem först när du har godkänt driftsättningen.
 

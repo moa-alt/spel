@@ -1,0 +1,67 @@
+# Skapar appen och den permanenta volymen på Fly.io om de saknas, och lägger in runtime-hemligheterna där.
+# Startar ingen maskin och driftsätter ingenting. Körs bara manuellt.
+name: Förbered Fly.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      bekraftelse:
+        description: "Skriv FORBERED för att skapa app och volym på Fly.io (volymen kostar ca 0,15 USD/mån)"
+        required: true
+      organisation:
+        description: "Fly.io-organisation"
+        required: true
+        default: personal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fly-produktion
+  cancel-in-progress: false
+
+jobs:
+  forbered:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: fly-produktion
+    steps:
+      - name: Kontrollera bekräftelsen
+        env:
+          SVAR: ${{ inputs.bekraftelse }}
+        run: |
+          if [ "$SVAR" != "FORBERED" ]; then
+            echo "Bekräftelsen saknas. Skriv FORBERED för att fortsätta." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Kontrollera att FLY_API_TOKEN finns
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "Lägg in FLY_API_TOKEN under Settings → Secrets and variables → Actions." >&2
+            exit 1
+          fi
+
+      # Hemligheterna skickas till Fly.io via stdin. Bara deras namn skrivs ut, aldrig värdena.
+      - name: Skapa app och volym, lägg in hemligheter
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_APP: ${{ vars.FLY_APP }}
+          ORGANISATION: ${{ inputs.organisation }}
+          STUDIO_USER: ${{ secrets.STUDIO_USER }}
+          STUDIO_PASSWORD: ${{ secrets.STUDIO_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: python scripts/fly_github.py forbered "$ORGANISATION"

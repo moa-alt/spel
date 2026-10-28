@@ -1,0 +1,61 @@
+# Driftsätter AI Studio till Fly.io. Startas bara manuellt (Actions → Driftsätt till Fly.io → Run workflow).
+# Alla tester körs först. Publiceringsläget är alltid simulering: driftsättningen stoppas annars.
+name: Driftsätt till Fly.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      bekraftelse:
+        description: "Skriv DRIFTSATT för att driftsätta (publiceringsläget förblir simulering)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fly-produktion
+  cancel-in-progress: false
+
+jobs:
+  bekraftelse:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kontrollera bekräftelsen
+        env:
+          SVAR: ${{ inputs.bekraftelse }}
+        run: |
+          if [ "$SVAR" != "DRIFTSATT" ]; then
+            echo "Bekräftelsen saknas. Skriv DRIFTSATT för att fortsätta." >&2
+            exit 1
+          fi
+
+  tester:
+    needs: bekraftelse
+    uses: ./.github/workflows/tester.yml
+
+  driftsatt:
+    needs: tester
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: fly-produktion
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP: ${{ vars.FLY_APP }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Kontroller före driftsättning
+        run: python scripts/fly_github.py fore
+
+      # Avbilden byggs här på GitHub (inte på Flys byggserver) och innehåller bara app/ och starta.sh.
+      - name: Driftsätt (en maskin)
+        run: flyctl deploy --local-only --ha=false --app "$(python scripts/fly_github.py appnamn)"
+
+      - name: Kontroller efter driftsättning
+        run: python scripts/fly_github.py efter

@@ -49,6 +49,14 @@ def kontroller() -> list[tuple[bool, str]]:
     ignorerat = (ROT / ".dockerignore").read_text(encoding="utf-8").split()
     k(".env" in ignorerat and "data" in ignorerat, ".env och data/ skickas inte till Flys byggserver")
 
+    flode = ROT / ".github" / "workflows" / "fly-driftsatt.yml"
+    if flode.is_file():
+        text = flode.read_text(encoding="utf-8")
+        triggers = text.split("\non:", 1)[1].split("\npermissions:", 1)[0] if "\non:" in text else ""
+        k("workflow_dispatch" in triggers and not re.search(r"^\s*(push|pull_request|schedule|workflow_run):", triggers, re.M),
+          "Driftsättning via GitHub Actions startas bara manuellt")
+        k("STUDIO_PUBLICERING" not in text, "Workflowen ändrar aldrig publiceringsläget")
+
     krav = (ROT / "requirements.txt").read_text(encoding="utf-8").lower()
     k(all(p in krav for p in ("fastapi", "uvicorn", "pillow", "anthropic", "tzdata")), "Alla beroenden finns i requirements.txt")
 
