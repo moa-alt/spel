@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.background import BackgroundTask
 
-from . import auth, bilder, config, db, jobb, kvalitet, lankforslag, publicering, saknade, sajtkarta, seo_ai
+from . import auth, bilder, config, db, design, jobb, kvalitet, lankforslag, publicering, saknade, sajtkarta, seo_ai
 from .planering import MAX_SEKUNDARA, CsvFel, liknande, normalisera_sokord, tolka_csv
 from .publicering import PubliceringsFel
 from .render import wordpress_block
@@ -140,6 +140,8 @@ class Article(BaseModel):
     sokintention: dict | None = None
     internlankar: list[dict] = Field(default_factory=list)
     kategori_id: int | None = None
+    # Designsystemets strukturerade innehåll (se design.py). Saknas för äldre artiklar med rå HTML.
+    dokument: dict | None = None
     demo: bool = False
 
 
@@ -291,28 +293,39 @@ def _avboka_om_schemalagd(artikel: dict, orsak: str) -> dict:
     return db.hamta(artikel["id"])
 
 
-@app.put("/api/artiklar/{artikel_id}/innehall")
-def spara_innehall(artikel_id: int, article: Article):
-    artikel = _hamta_eller_404(artikel_id)
-    if artikel["status"] == "schemalagd":
-        jamfor = Article(**artikel["innehall"]).model_dump() | {
-            "huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]}
-        if article.model_dump() | {"huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]} != jamfor:
-            artikel = _avboka_om_schemalagd(artikel, "Artikeln redigerades efter godkännandet; publiceringen stoppades.")
-    if artikel["status"] not in ("utkast", "granskas", "godkand", "schemalagd") or not artikel["har_innehall"]:
-        raise HTTPException(409, "Artikeln kan inte redigeras i sin nuvarande status.")
-    innehall = article.model_dump()
-    innehall["huvudsokord"] = artikel["huvudsokord"]
-    innehall["sekundara_sokord"] = artikel["sekundara_sokord"]
+def _klientinnehall(article: Article, artikel: dict) -> dict:
+    """Innehållet som webbläsaren skickat, kompletterat och normaliserat av servern.
+
+    Sökord, låst adress, bildfiler och format ägs av servern. För strukturerade artiklar härleds
+    HTML:en alltid från dokumentet, så att webbläsaren aldrig kan skicka in egen HTML.
+    """
+    innehall = article.model_dump() | {"huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]}
     if artikel.get("mal_slug"):
         # Artikeln är skapad för en adress som befintliga artiklar redan länkar till.
         innehall["slug"] = artikel["mal_slug"]
     # Bildfiler, status och godkännanden ägs av servern; webbläsaren ändrar bara texterna.
     innehall = bilder.sla_ihop_klient(innehall, artikel["innehall"])
-    if innehall == bilder.sla_ihop_klient(Article(**artikel["innehall"]).model_dump() | {
-        "huvudsokord": artikel["huvudsokord"], "sekundara_sokord": artikel["sekundara_sokord"]
-    }, artikel["innehall"]):
-        return {"status": artikel["status"]}
+    if design.ar_strukturerad(artikel["innehall"]):
+        if not isinstance(innehall.get("dokument"), dict):
+            innehall["dokument"] = artikel["innehall"]["dokument"]
+        return design.bygg(innehall)
+    innehall["dokument"] = None
+    return innehall
+
+
+@app.put("/api/artiklar/{artikel_id}/innehall")
+def spara_innehall(artikel_id: int, article: Article):
+    artikel = _hamta_eller_404(artikel_id)
+    if not artikel["har_innehall"]:
+        raise HTTPException(409, "Artikeln kan inte redigeras i sin nuvarande status.")
+    innehall = _klientinnehall(article, artikel)
+    jamfor = _klientinnehall(Article(**artikel["innehall"]), artikel)
+    if artikel["status"] == "schemalagd" and innehall != jamfor:
+        artikel = _avboka_om_schemalagd(artikel, "Artikeln redigerades efter godkännandet; publiceringen stoppades.")
+    if artikel["status"] not in ("utkast", "granskas", "godkand", "schemalagd"):
+        raise HTTPException(409, "Artikeln kan inte redigeras i sin nuvarande status.")
+    if innehall == jamfor:
+        return {"status": artikel["status"], "html": innehall["html"]}
     # En godkänd artikel som ändras måste godkännas igen innan den kan schemaläggas.
     ny_status = "granskas" if artikel["status"] == "godkand" else artikel["status"]
     if not db.byt_status(artikel_id, (artikel["status"],), ny_status, innehall=innehall, godkand_at=None, godkand_hash=None,
@@ -320,7 +333,22 @@ def spara_innehall(artikel_id: int, article: Article):
         raise HTTPException(409, "Artikeln ändrades samtidigt. Ladda om och försök igen.")
     if artikel["status"] == "godkand":
         db.logga(artikel_id, "godkannande_upphavt", "Artikeln redigerades efter godkännandet")
-    return {"status": ny_status}
+    return {"status": ny_status, "html": innehall["html"]}
+
+
+@app.post("/api/artiklar/{artikel_id}/forhandsgranska")
+def forhandsgranska(artikel_id: int, article: Article):
+    """Förhandsgranskningen renderas av samma kod som WordPress-exporten; bara bildadresserna skiljer.
+
+    Ändrar ingenting. Bilder som ännu inte skapats visas som platshållare i sina platser.
+    """
+    artikel = _hamta_eller_404(artikel_id)
+    if not design.ar_strukturerad(artikel["innehall"]):
+        raise HTTPException(409, "Artikeln har det äldre formatet och förhandsgranskas i webbläsaren.")
+    innehall = _klientinnehall(article, artikel)
+    per_id = {b["id"]: b for b in innehall.get("bilder", [])}
+    platser = {n: design.bild_forhandsvisning(per_id.get(n), n) for n in design.bildplatser(innehall["dokument"])}
+    return {"html": design.rendera(innehall, platser, redigerbar=True), "analys_html": innehall["html"]}
 
 
 @app.post("/api/artiklar/{artikel_id}/generera", status_code=202)

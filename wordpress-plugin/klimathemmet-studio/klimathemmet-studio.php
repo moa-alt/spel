@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Klimathemmet AI Studio
  * Description: Laddar artikeldesignen från AI Studio och gör SEO-fälten skrivbara via REST API för behöriga användare.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: Klimathemmet
@@ -13,7 +13,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('KH_STUDIO_VERSION', '1.1.0');
+define('KH_STUDIO_VERSION', '1.2.0');
 
 /**
  * Metafält som AI Studio får skriva via REST API. Bara användare som får redigera
@@ -60,6 +60,10 @@ add_action('wp_enqueue_scripts', function () {
     $post = get_post();
     if ($post && strpos($post->post_content, 'kh-artikel') !== false) {
         wp_enqueue_style('kh-studio-artikel', plugins_url('artikel.css', __FILE__), array(), KH_STUDIO_VERSION);
+    }
+    // Designsystemet (från version 1.2.0): artiklar med <article class="khd-artikel">.
+    if ($post && strpos($post->post_content, 'khd-artikel') !== false) {
+        wp_enqueue_style('kh-studio-design', plugins_url('design.css', __FILE__), array(), KH_STUDIO_VERSION);
     }
 });
 

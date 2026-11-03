@@ -307,7 +307,7 @@ body[data-view="editor"] { --bottom-h: 132px; }
 .toggle input:focus-visible + .toggle-track { outline: 2px solid var(--brand); outline-offset: 2px; }
 .toggle input:disabled + .toggle-track { opacity: .5; }
 /* Förhandsvisningen växer med innehållet så att hela sidan scrollar, även på mobil. */
-.frame-wrap { margin: 0 -16px; display: flex; justify-content: center; }
+.frame-wrap { margin: 0 -16px; display: flex; justify-content: center; overflow: hidden; }
 .frame-wrap iframe { width: 100%; min-height: 60vh; border: 0; background: #fff; display: block; transition: width .25s; }
 .frame-wrap.editing iframe { outline: 2px dashed var(--brand); outline-offset: -2px; }
 

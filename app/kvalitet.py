@@ -10,7 +10,7 @@ import re
 from html import unescape
 from urllib.parse import urlsplit
 
-from . import bilder, config, db, sajtkarta
+from . import bilder, config, db, design, sajtkarta
 from .demo import slugify
 from .planering import likhet, normalisera_sokord
 from .render import BILD_MARKOR
@@ -83,7 +83,19 @@ def _sokord_och_meta(inn: dict, kw: str, k: list, v: list, ok: list) -> None:
 
 def _struktur(inn: dict, k: list, v: list, ok: list) -> None:
     body = inn.get("html", "")
-    if re.search(r"<h1[\s>]", body, re.I):
+    h1 = len(re.findall(r"<h1[\s>]", body, re.I))
+    if design.ar_strukturerad(inn):
+        # I designsystemet ligger artikelns enda H1 i heron; temat döljer inläggets egen titel.
+        if h1 != 1:
+            k.append(_punkt("h1_antal", f"Artikeln ska ha exakt en H1, men har {h1}."))
+        dok = inn["dokument"]
+        if not dok.get("faq"):
+            v.append(_punkt("faq_saknas", "Artikeln saknar avsnittet med vanliga frågor."))
+        if not dok.get("sammanfattning"):
+            v.append(_punkt("sammanfattning_saknas", "Artikeln saknar sammanfattning."))
+        if not (dok.get("hero") or {}).get("ingress"):
+            k.append(_punkt("ingress_saknas", "Heron saknar introduktion."))
+    elif h1:
         k.append(_punkt("h1_i_text", "Brödtexten innehåller en H1. Rubriken (H1) sätts av WordPress; använd H2 i texten."))
     h2 = re.findall(r"<h2([^>]*)>(.*?)</h2>", body, re.S | re.I)
     if len(h2) < 2:

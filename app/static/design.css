@@ -1,0 +1,276 @@
+/* Klimathemmet – designsystem för AI Studio-artiklar.
+   Bygger på referensartikeln "Ventilation i gamla hus". Allt är scopat under .khd-artikel så att
+   ingenting påverkar resten av WordPress-sajten. Layouten anpassar sig efter artikelns egen bredd
+   (container queries), så den fungerar oavsett hur bred temats innehållsyta är. */
+
+.khd-artikel {
+  --khd-gron: #19382b;
+  --khd-gron-2: #315943;
+  --khd-gradde: #f7f4ee;
+  --khd-salvia: #eaf0e8;
+  --khd-text: #28382e;
+  --khd-dampad: #59675e;
+  --khd-kant: #e2e7df;
+  --khd-accent: #64866b;
+  container-type: inline-size;
+  container-name: khd-artikel;
+  color: var(--khd-text);
+  background: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.8;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.khd-artikel *,
+.khd-artikel *::before,
+.khd-artikel *::after { box-sizing: border-box; }
+/* Neutralisera temats egna stilar på elementen som designen använder. */
+.khd-artikel header,
+.khd-artikel section,
+.khd-artikel nav,
+.khd-artikel aside,
+.khd-artikel figure { margin: 0; padding: 0; border: 0; background: none; }
+
+.khd-artikel h1,
+.khd-artikel h2,
+.khd-artikel h3 {
+  color: var(--khd-gron);
+  letter-spacing: -.035em;
+  line-height: 1.2;
+  font-weight: 650;
+  margin: 0 0 20px;
+  font-family: inherit;
+  text-transform: none;
+}
+.khd-artikel h1 { font-size: clamp(34px, 4.7vw, 65px); line-height: 1.08; }
+.khd-artikel h2 { font-size: clamp(27px, 3.3vw, 43px); }
+.khd-artikel h3 { font-size: 21px; letter-spacing: -.02em; }
+.khd-artikel h2[id] { scroll-margin-top: 90px; }
+.khd-artikel p { margin: 0 0 19px; }
+.khd-artikel a { color: #276043; text-underline-offset: 4px; }
+.khd-artikel ul,
+.khd-artikel ol { margin: 0 0 19px; padding-left: 23px; }
+.khd-artikel li { margin-bottom: 8px; }
+.khd-artikel img { display: block; width: 100%; height: auto; max-width: 100%; border: 0; }
+.khd-artikel .khd-bild figcaption { font-size: 13px; color: var(--khd-dampad); margin-top: 10px; }
+.khd-artikel .khd-wrap { width: min(1140px, calc(100% - 48px)); margin-inline: auto; }
+.khd-artikel .khd-eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--khd-accent);
+  margin-bottom: 18px;
+}
+.khd-artikel .khd-section {
+  padding: 86px 0;
+  border-bottom: 1px solid var(--khd-kant);
+  scroll-margin-top: 90px;
+}
+.khd-artikel .khd-lead { color: #506257; font-size: 18px; line-height: 1.8; max-width: 760px; }
+.khd-artikel .khd-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  background: var(--khd-gron);
+  color: #fff !important;
+  padding: 14px 23px;
+  border-radius: 5px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none !important;
+  margin-top: 14px;
+  transition: background .2s, transform .2s;
+}
+.khd-artikel .khd-btn:hover { background: var(--khd-gron-2); transform: translateY(-2px); }
+
+/* Hero */
+.khd-artikel .khd-hero { display: grid; grid-template-columns: 47% 53%; background: var(--khd-gradde); min-height: 570px; }
+.khd-artikel .khd-hero-copy {
+  padding: clamp(35px, 5vw, 78px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+.khd-artikel .khd-hero-copy .khd-lead { max-width: 550px; }
+.khd-artikel .khd-hero-photo { min-height: 470px; overflow: hidden; }
+.khd-artikel .khd-hero-photo .khd-bild,
+.khd-artikel .khd-hero-photo img { height: 100%; }
+.khd-artikel .khd-hero-photo img { object-fit: cover; }
+/* Utan huvudbild blir heron en spalt i full bredd. */
+.khd-artikel .khd-hero--utan-bild { grid-template-columns: 1fr; min-height: 0; }
+.khd-artikel .khd-hero--utan-bild .khd-hero-copy { padding-block: clamp(45px, 6vw, 90px); }
+.khd-artikel .khd-hero--utan-bild .khd-hero-copy .khd-lead { max-width: 760px; }
+
+/* Introduktion med faktaruta */
+.khd-artikel .khd-intro { display: grid; grid-template-columns: 1.35fr 1fr; gap: 65px; padding: 84px 0 60px; }
+.khd-artikel .khd-intro--utan-fakta { grid-template-columns: 1fr; }
+.khd-artikel .khd-facts {
+  background: var(--khd-gron);
+  color: #e3eee5;
+  border-radius: 9px;
+  padding: 36px;
+  align-self: start;
+}
+.khd-artikel .khd-facts h3 { color: #fff; font-size: 27px; }
+.khd-artikel .khd-facts .khd-eyebrow { color: #b5d1ba; }
+.khd-artikel .khd-fact { border-top: 1px solid rgba(255,255,255,.2); padding-top: 17px; margin-top: 17px; }
+.khd-artikel .khd-fact strong { display: block; color: #fff; font-size: 14px; }
+.khd-artikel .khd-fact p { font-size: 14px; margin: 5px 0 0; }
+
+/* Innehållsförteckning */
+.khd-artikel .khd-toc { padding: 28px 34px; background: var(--khd-gradde); border-radius: 8px; margin-bottom: 15px; }
+.khd-artikel .khd-toc strong { display: block; font-size: 11px; letter-spacing: .14em; margin-bottom: 14px; color: var(--khd-gron); }
+.khd-artikel .khd-toc-links { display: flex; flex-wrap: wrap; gap: 9px 23px; }
+.khd-artikel .khd-toc a { color: #385744; font-size: 14px; text-decoration: none; }
+.khd-artikel .khd-toc a:hover { text-decoration: underline; }
+
+/* Mörkgrön bildsektion */
+.khd-artikel .khd-feature { background: var(--khd-gron); color: #e2ebe2; padding: 72px 0; scroll-margin-top: 90px; }
+.khd-artikel .khd-feature-inner {
+  width: min(1200px, calc(100% - 48px));
+  margin: auto;
+  display: grid;
+  grid-template-columns: 1fr 1.05fr;
+  gap: 65px;
+  align-items: center;
+}
+.khd-artikel .khd-feature-inner--utan-bild { grid-template-columns: minmax(0, 860px); justify-content: center; }
+.khd-artikel .khd-feature h2,
+.khd-artikel .khd-feature h3 { color: #fff; }
+.khd-artikel .khd-feature .khd-eyebrow { color: #b5d2b9; }
+.khd-artikel .khd-feature .khd-lead { color: #d3e2d5; }
+.khd-artikel .khd-feature a { color: #c8e7cf; }
+.khd-artikel .khd-feature .khd-note { background: rgba(255,255,255,.08); color: #e2ebe2; border-left-color: #b5d2b9; }
+.khd-artikel .khd-feature .khd-check li::before,
+.khd-artikel .khd-feature .khd-steps li::marker { color: #b5d2b9; }
+.khd-artikel .khd-feature img { aspect-ratio: 16/10; object-fit: cover; border-radius: 7px; }
+
+/* Kort */
+.khd-artikel .khd-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 17px; margin: 34px 0 27px; }
+.khd-artikel .khd-card { padding: 28px 26px; background: var(--khd-gradde); border-radius: 8px; border: 1px solid #eeeae3; }
+.khd-artikel .khd-card:nth-child(2),
+.khd-artikel .khd-card:nth-child(5) { background: #edf2eb; }
+.khd-artikel .khd-number {
+  display: block;
+  color: #77947b;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  margin-bottom: 16px;
+}
+.khd-artikel .khd-card h3 { font-size: 19px; margin-bottom: 12px; }
+.khd-artikel .khd-card p { font-size: 14px; color: var(--khd-dampad); margin: 0; }
+
+/* Text och bild sida vid sida, växlande */
+.khd-artikel .khd-split { display: grid; grid-template-columns: 1fr 1fr; gap: 65px; align-items: center; }
+.khd-artikel .khd-split--omvand > :first-child { order: 2; }
+.khd-artikel .khd-split img { aspect-ratio: 4/4.2; object-fit: cover; border-radius: 8px; }
+.khd-artikel .khd-steps { padding-left: 23px; margin: 20px 0; }
+.khd-artikel .khd-steps li { margin-bottom: 14px; padding-left: 5px; }
+.khd-artikel .khd-steps li::marker { color: #64896b; font-weight: 700; }
+
+/* Informationsruta */
+.khd-artikel .khd-note {
+  padding: 22px 25px;
+  margin: 27px 0;
+  border-left: 3px solid #709575;
+  background: var(--khd-salvia);
+  border-radius: 0 6px 6px 0;
+  font-size: 15px;
+  color: #41584a;
+}
+.khd-artikel .khd-note p:last-child { margin-bottom: 0; }
+
+/* Lösningar */
+.khd-artikel .khd-solutions { background: var(--khd-gradde); padding: 90px 0; scroll-margin-top: 90px; }
+.khd-artikel .khd-solution-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 17px; margin: 34px 0 27px; }
+.khd-artikel .khd-solution { background: #fff; border: 1px solid #e9e9e2; border-radius: 8px; padding: 29px; }
+.khd-artikel .khd-solution h3 { font-size: 20px; margin-bottom: 10px; }
+.khd-artikel .khd-solution p { font-size: 15px; color: var(--khd-dampad); margin: 0; }
+
+/* Jämförelsetabell */
+.khd-artikel .khd-table-scroll { overflow-x: auto; margin: 30px 0; -webkit-overflow-scrolling: touch; }
+.khd-artikel .khd-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 15px; margin: 0; }
+.khd-artikel .khd-table th { text-align: left; background: var(--khd-gron); color: #fff; padding: 17px 19px; border: 0; }
+.khd-artikel .khd-table td { padding: 18px 19px; border: 0; border-bottom: 1px solid var(--khd-kant); vertical-align: top; }
+.khd-artikel .khd-table tr:nth-child(even) td { background: #f8f8f5; }
+.khd-artikel .khd-table td:first-child { font-weight: 700; color: var(--khd-gron); }
+
+/* Checklista */
+.khd-artikel .khd-check { list-style: none; margin: 20px 0; padding: 0; }
+.khd-artikel .khd-check li { position: relative; padding-left: 29px; margin-bottom: 13px; }
+.khd-artikel .khd-check li::before { content: "✓"; position: absolute; left: 0; color: #4d8059; font-weight: 800; }
+
+/* Sammanfattning */
+.khd-artikel .khd-summary { background: var(--khd-salvia); border-radius: 9px; padding: 45px 52px; margin: 70px 0 0; }
+.khd-artikel .khd-summary p:last-child { margin-bottom: 0; }
+
+/* Vanliga frågor */
+.khd-artikel .khd-faq { border-top: 1px solid var(--khd-kant); margin-top: 28px; }
+.khd-artikel .khd-faq details { padding: 21px 0; border-bottom: 1px solid var(--khd-kant); }
+.khd-artikel .khd-faq summary { color: var(--khd-gron); font-weight: 700; font-size: 17px; cursor: pointer; }
+.khd-artikel .khd-faq details p { color: var(--khd-dampad); padding-top: 16px; margin: 0; }
+
+/* Relaterade artiklar */
+.khd-artikel .khd-related { padding: 75px 0 90px; }
+.khd-artikel .khd-related-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 17px; margin-top: 30px; }
+.khd-artikel .khd-related-card {
+  min-height: 195px;
+  background: var(--khd-gradde);
+  border-radius: 7px;
+  padding: 28px;
+  text-decoration: none !important;
+  display: flex;
+  flex-direction: column;
+  color: var(--khd-gron);
+  transition: background .2s, transform .2s;
+}
+.khd-artikel .khd-related-card:hover { background: #e8eee6; transform: translateY(-3px); }
+.khd-artikel .khd-related-card small { font-size: 11px; letter-spacing: .12em; font-weight: 700; color: #728875; margin-bottom: 12px; text-transform: uppercase; }
+.khd-artikel .khd-related-card h3 { font-size: 21px; }
+.khd-artikel .khd-related-card span { margin-top: auto; font-size: 13px; font-weight: 700; }
+
+/* Responsivt efter artikelns egen bredd */
+@container khd-artikel (max-width: 900px) {
+  .khd-artikel .khd-hero,
+  .khd-artikel .khd-intro,
+  .khd-artikel .khd-feature-inner,
+  .khd-artikel .khd-split { grid-template-columns: 1fr; }
+  .khd-artikel .khd-split--omvand > :first-child { order: 0; }
+  .khd-artikel .khd-hero { min-height: 0; }
+  .khd-artikel .khd-hero-photo { min-height: 0; }
+  .khd-artikel .khd-hero-photo img { height: auto; aspect-ratio: 16/9; }
+  .khd-artikel .khd-intro,
+  .khd-artikel .khd-feature-inner,
+  .khd-artikel .khd-split { gap: 36px; }
+  .khd-artikel .khd-card-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .khd-artikel .khd-split img { aspect-ratio: 16/10; }
+}
+@container khd-artikel (max-width: 600px) {
+  .khd-artikel { font-size: 16px; }
+  .khd-artikel .khd-wrap,
+  .khd-artikel .khd-feature-inner { width: calc(100% - 34px); }
+  .khd-artikel .khd-hero-copy { padding: 42px 23px; }
+  .khd-artikel .khd-hero-photo img { aspect-ratio: 4/3; object-fit: cover; }
+  .khd-artikel .khd-section { padding: 57px 0; }
+  .khd-artikel .khd-intro { padding: 55px 0 35px; }
+  .khd-artikel .khd-feature,
+  .khd-artikel .khd-solutions { padding: 57px 0; }
+  .khd-artikel .khd-card-grid,
+  .khd-artikel .khd-solution-grid,
+  .khd-artikel .khd-related-grid { grid-template-columns: 1fr; }
+  .khd-artikel .khd-facts { padding: 28px; }
+  .khd-artikel .khd-toc { padding: 25px 22px; }
+  .khd-artikel .khd-toc-links { display: grid; gap: 10px; }
+  .khd-artikel .khd-summary { padding: 30px 25px; margin-top: 45px; }
+  .khd-artikel .khd-related { padding: 55px 0 65px; }
+  .khd-artikel .khd-lead { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .khd-artikel .khd-btn,
+  .khd-artikel .khd-related-card { transition: none; }
+}

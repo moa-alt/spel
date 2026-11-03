@@ -8,7 +8,7 @@ import asyncio
 import html
 import logging
 
-from . import bilder, db, lankforslag, seo_ai
+from . import bilder, db, design, lankforslag, seo_ai
 from .ai_writer import GenereringsFel, generera_artikel
 from . import config
 from .demo import build_demo_article
@@ -53,9 +53,6 @@ async def _kor(artikel_id: int) -> None:
             lankmal = seo_ai.lankmal_for(artikel)
             if not config.settings.anthropic_api_key:
                 resultat = build_demo_article(huvud, sek)
-                if lankmal:
-                    lista = "".join(f'<li><a href="{html.escape(m["url"])}">{html.escape(m["titel"])}</a></li>' for m in lankmal[:3])
-                    resultat["html"] += f"\n<h2 id=\"las-mer\">Läs mer</h2>\n<ul>{lista}</ul>"
             else:
                 resultat = None
                 async for h in generera_artikel(huvud, sek, andringar=andringar, tidigare=tidigare, lankmal=lankmal):
@@ -75,8 +72,18 @@ async def _kor(artikel_id: int) -> None:
                 resultat["kategori_id"] = artikel["innehall"]["kategori_id"]
             # Färdiga bilder behålls; ingen bild genereras om automatiskt när texten skrivs om.
             resultat["bilder"] = bilder.behall_vid_omgenerering((artikel["innehall"] or {}).get("bilder", []), resultat["bilder"])
-            resultat["html"], resultat["internlankar"] = seo_ai.kontrollera_lankar(
-                resultat["html"], {m["url"] for m in lankmal})
+            tillatna = {m["url"] for m in lankmal}
+            if design.ar_strukturerad(resultat) and resultat.get("demo") and lankmal:
+                # Demotexten får ett par internlänkar, som en AI-skriven artikel.
+                lankar = " och ".join(f'<a href="{html.escape(m["url"])}">{html.escape(m["titel"].lower())}</a>' for m in lankmal[:2])
+                resultat["dokument"]["intro"]["stycken"].append(f"Läs också om {lankar}.")
+            if design.ar_strukturerad(resultat):
+                # Länkar i textfälten kontrolleras på samma sätt; relaterade artiklar hämtas ur sajtkartan.
+                resultat["internlankar"] = design.rensa_lankar(resultat["dokument"], tillatna)
+                resultat["dokument"]["relaterade"] = design.relaterade(lankmal, resultat["internlankar"])
+                design.bygg(resultat)
+            else:
+                resultat["html"], resultat["internlankar"] = seo_ai.kontrollera_lankar(resultat["html"], tillatna)
             db.byt_status(artikel_id, ("genereras",), "granskas", innehall=resultat, fel=None, andringar=None)
             # Befintliga artiklar som kan länka till den nya; blir godkännbara först när den är publicerad.
             lankforslag.for_ny_artikel(db.hamta(artikel_id))

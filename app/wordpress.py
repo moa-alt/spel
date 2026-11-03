@@ -8,7 +8,7 @@ import logging
 
 import httpx
 
-from . import config
+from . import config, design
 from .render import wordpress_block
 
 log = logging.getLogger("studio.wordpress")
@@ -131,6 +131,9 @@ class WordPress:
         studio_id = f"artikel-{artikel['id']}"
         ns = await self.namespaces()
         plugin = STUDIO_NAMESPACE in ns
+        if plugin and design.ar_strukturerad(innehall):
+            # Designsystemets stilmall finns i pluginet från version 1.2.0; äldre versioner får CSS:en inbäddad.
+            plugin = await self.plugin_version() >= (1, 2, 0)
         schema = (await self._anrop("OPTIONS", "/wp/v2/posts")).json()
         tillatna_meta = set(schema.get("schema", {}).get("properties", {}).get("meta", {}).get("properties", {}))
 
@@ -196,6 +199,14 @@ class WordPress:
         if kontroll.get("status") != status:
             raise WordPressFel(f"WordPress sparade inlägget med status {kontroll.get('status')} i stället för {status}.")
         return kontroll
+
+    async def plugin_version(self) -> tuple[int, ...]:
+        """Tilläggspluginets version, eller (0,) om den inte går att läsa."""
+        r = await self._anrop("GET", f"/{STUDIO_NAMESPACE}/status", tillat=(401, 403, 404))
+        try:
+            return tuple(int(x) for x in str(r.json().get("version", "0")).split(".")[:3])
+        except (ValueError, AttributeError):
+            return (0,)
 
     # ---------- Mediabiblioteket ----------
 

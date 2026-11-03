@@ -204,6 +204,63 @@ Med `ANTHROPIC_API_KEY` i `.env` skriver Claude artikeln. Utan nyckel visas en d
 
 Prompten finns i `app/ai_writer.py` (`SYSTEMPROMPT`). Där justerar du ton, längd och struktur.
 
+## Designsystem för artiklarna
+
+Nya artiklar får samma visuella identitet som referensartikeln *Ventilation i gamla hus*: mörkgrönt (#19382b), gräddvitt (#f7f4ee), salviagrönt (#eaf0e8) och sekundärgrönt (#315943), stora rubriker, generösa marginaler och responsiv layout.
+
+**Innehåll och presentation är separerade.**
+- AI:n skriver ett strukturerat dokument (`innehall["dokument"]`) i stället för HTML.
+- Dokumentet består av hero, introduktion med faktaruta, sektioner, sammanfattning och vanliga frågor.
+- Varje sektion har en layout och en lista med innehållsblock.
+- `app/design.py` renderar dokumentet deterministiskt till HTML, och `app/static/design.css` står för utseendet. Samma dokument ger alltid samma HTML.
+
+**Komponenter**
+
+| Del | Komponent |
+|---|---|
+| Hero | Rubrik (artikelns enda H1), introduktion, knapp till ett avsnitt och huvudbild i två spalter |
+| Introduktion | Text och mörkgrön faktaruta |
+| Innehållsförteckning | Skapas automatiskt från sektionernas H2, med ankarlänkar |
+| Sektioner | `standard`, `mork` (mörkgrön med bild), `bild` (text och bild som växlar sida), `losningar` (gräddvit med lösningskort) |
+| Block | Stycke, H3, lista, checklista, numrerade steg, informationsruta, problem- och lösningskort, jämförelsetabell |
+| Avslutning | Sammanfattning, vanliga frågor och relaterade artiklar |
+
+**Hur AI:n och renderaren delar på arbetet**
+- AI:n väljer sektioner, layouter och block efter innehållet, så att artiklarna inte får samma layout.
+- Renderaren kontrollerar strukturen: okända block tas bort, varje bild används en gång och bara i en sektion med bildlayout, och H2-id:n blir unika.
+- Placerar AI:n inte alla bilder fördelar servern dem.
+- **Relaterade artiklar** väljs automatiskt från publicerade sidor i SEO-kartan, aldrig av AI:n.
+
+**Bilder**
+- Bild 1 är huvudbilden i heron. Bild 2–4 står i sina sektioner, med alt-texter, `srcset`, `width`/`height` och lazy loading i WordPress.
+- Saknas en bild visas sektionen i en spalt utan tomma ytor. I studion visas en platshållare på bildens plats.
+
+**Säker text**
+- All text escapas.
+- Stycken, listor och tabellceller får bara innehålla fetstil, kursiv och länkar. Länkarna kontrolleras av den vanliga länkkontrollen.
+- Rubriker är ren text.
+- HTML som skickas från webbläsaren används aldrig; HTML:en härleds alltid från dokumentet.
+
+**Isolering och responsivitet**
+- All CSS är scopad under `.khd-artikel`, så att designen inte påverkar resten av sajten.
+- Layouten anpassar sig efter artikelns egen bredd med *container queries*, med brytpunkter vid 900 och 600 px. Den fungerar därför oavsett temats innehållsbredd.
+
+**Förhandsgranskning och redigering**
+- Förhandsgranskningen i studion renderas av samma kod som WordPress-exporten; bara bildadresserna skiljer.
+- Dator visas i 1280 px bredd och mobil i 390 px, nedskalat vid behov.
+- Med *Redigera direkt i texten* redigerar du varje textfält på plats, och ändringen sparas i rätt fält i dokumentet.
+- Metadata ändras i SEO-fliken och bilderna i Bilder-fliken.
+- HTML-fliken visar den genererade koden, som inte kan ändras för hand.
+
+**Äldre artiklar**
+- Artiklar skapade före designsystemet (rå HTML med `kh-`-klasser) renderas, förhandsgranskas och redigeras som förut.
+- De får den nya designen om du genererar om texten. Bilderna behålls.
+
+**WordPress**
+- Tilläggspluginet laddar `design.css` från version 1.2.0.
+- Har sajten en äldre version bäddas CSS:en in i inlägget, så att designen alltid fungerar.
+- Det nya pluginet installeras först när du godkänner det; se DRIFT.md steg 8.
+
 ## Kvalitetskontroll före godkännande
 
 Servern kontrollerar varje artikel innan den kan godkännas. Kontrollen körs igen vid schemaläggning och precis före publicering. Resultatet visas i editorns sidospalt och i godkännandedialogen.

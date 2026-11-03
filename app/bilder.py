@@ -235,7 +235,7 @@ def plan(innehall: dict) -> dict[int, dict]:
         if bid == 1 or not fore:
             # Huvudbilden: ämnet i stort, med introduktionen som sammanhang.
             nasta = efter[0][0] if efter else len(body)
-            ut[bid] = {"roll": "huvudbild", "avsnitt": "Efter introduktionen", "kontext": _text(body[:nasta])[:500]}
+            ut[bid] = {"roll": "huvudbild", "avsnitt": "Huvudbild vid introduktionen", "kontext": _text(body[:nasta])[:500]}
             continue
         rubrik = fore[-1]
         slut = efter[0][0] if efter else len(body)

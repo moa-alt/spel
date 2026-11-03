@@ -52,10 +52,10 @@ def test_godkannande_kraver_granskning_och_upphavs_vid_redigering(klient):
     assert godkand["godkand_at"]
 
     # Att spara samma innehåll påverkar inte godkännandet.
-    assert klient.put(f"/api/artiklar/{a['id']}/innehall", json=godkand["innehall"]).json() == {"status": "godkand"}
+    assert klient.put(f"/api/artiklar/{a['id']}/innehall", json=godkand["innehall"]).json()["status"] == "godkand"
 
     andrad = dict(godkand["innehall"], titel="Ny titel")
-    assert klient.put(f"/api/artiklar/{a['id']}/innehall", json=andrad).json() == {"status": "granskas"}
+    assert klient.put(f"/api/artiklar/{a['id']}/innehall", json=andrad).json()["status"] == "granskas"
     efter = klient.get(f"/api/artiklar/{a['id']}").json()
     assert efter["godkand_at"] is None
     handlingar = [h["handling"] for h in efter["historik"]]

@@ -472,9 +472,9 @@ def test_bildfliken(bild_server, browser, enhet, tmp_path):
     assert all(".webp" in t for t in page.locator("#images .img-file").all_text_contents())
     # Bilderna syns i förhandsvisningen: huvudbilden direkt, övriga med lazy loading.
     ram = page.frame_locator("#previewFrame")
-    ram.locator("figure.kh-bild img").nth(3).wait_for(state="attached")
-    assert ram.locator("figure.kh-bild img").first.get_attribute("loading") is None
-    assert ram.locator("figure.kh-bild img").nth(1).get_attribute("loading") == "lazy"
+    ram.locator("figure.khd-bild img").nth(3).wait_for(state="attached")
+    assert ram.locator("figure.khd-bild img").first.get_attribute("loading") is None
+    assert ram.locator("figure.khd-bild img").nth(1).get_attribute("loading") == "lazy"
     _ingen_sidscroll(page)
     _skarmbild(page, f"{enhet}-14-bilder")
 
@@ -551,5 +551,112 @@ def test_publiceringskalender(server, browser, enhet):
     page.locator(".pub-item", has_text=sokord).locator("[data-pub=avboka]").click()
     page.locator('#pubTabs [data-pubflik="att_planera"].active').wait_for()
     page.locator(".pub-item", has_text=sokord).locator("[data-pub=schemalagg]").wait_for()
+    assert fel == []
+    ctx.close()
+
+
+
+def _designsida(page, bredd, med_bilder=True):
+    """Demoartikeln renderad med designsystemet, som den ser ut på sajten (utan studion runt)."""
+    sys.path.insert(0, str(ROOT))
+    from app import design
+    from app.demo import build_demo_article
+
+    a = build_demo_article("värmepump i villa", ["luft-vattenvärmepump"])
+    bild = ('<figure class="khd-bild"><img src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 '
+            'width=%221536%22 height=%221024%22/%3E" width="1536" height="1024" alt=""></figure>')
+    platser = {n: (bild if med_bilder else None) for n in design.bildplatser(a["dokument"])}
+    css = (ROOT / "app" / "static" / "design.css").read_text(encoding="utf-8")
+    page.set_viewport_size({"width": bredd, "height": 900})
+    page.set_content(f"<!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>"
+                     f"<style>body{{margin:0;font-family:sans-serif}}{css}</style></head><body>{design.rendera(a, platser)}</body></html>")
+
+
+def _kolumner(page, selektor):
+    return page.eval_on_selector(selektor, "e => getComputedStyle(e).gridTemplateColumns.split(' ').length")
+
+
+@pytest.mark.parametrize("bredd,kolumner", [(390, 1), (820, 1), (1440, 2)])
+def test_designsystemet_ar_responsivt(browser, bredd, kolumner):
+    page = browser.new_page()
+    _designsida(page, bredd)
+    assert page.evaluate("document.documentElement.scrollWidth") <= bredd, "horisontell scroll"
+    assert _kolumner(page, ".khd-hero") == kolumner
+    assert _kolumner(page, ".khd-split") == kolumner
+    assert _kolumner(page, ".khd-card-grid") == {390: 1, 820: 2, 1440: 3}[bredd]
+    # Tabeller får scrolla inom sin ruta, aldrig hela sidan.
+    if page.locator(".khd-table").count():
+        assert page.eval_on_selector(".khd-table-scroll", "e => e.getBoundingClientRect().right") <= bredd
+    rubrik = page.eval_on_selector(".khd-artikel h1", "e => parseFloat(getComputedStyle(e).fontSize)")
+    assert 30 <= rubrik <= 66
+    _skarmbild(page, f"design-{bredd}")
+    page.close()
+
+
+@pytest.mark.parametrize("bredd", [390, 1440])
+def test_designen_klarar_saknade_bilder(browser, bredd):
+    page = browser.new_page()
+    _designsida(page, bredd, med_bilder=False)
+    assert page.locator(".khd-artikel img").count() == 0
+    assert page.locator(".khd-hero--utan-bild").count() == 1 and _kolumner(page, ".khd-hero") == 1
+    assert page.evaluate("document.documentElement.scrollWidth") <= bredd
+    # Ingen tom bildkolumn: textspalten fyller sektionen.
+    bredder = page.eval_on_selector_all(".khd-section > *", "els => els.map(e => e.getBoundingClientRect().width)")
+    assert max(bredder) > 300
+    _skarmbild(page, f"design-utan-bilder-{bredd}")
+    page.close()
+
+
+def test_designen_paverkar_inte_resten_av_sidan(browser):
+    page = browser.new_page()
+    css = (ROOT / "app" / "static" / "design.css").read_text(encoding="utf-8")
+    page.set_content(f"<style>{css}</style><h1 id='tema'>Temats rubrik</h1><p id='p'>Temats text</p>"
+                     "<article class='khd-artikel'><h2>Artikelns rubrik</h2></article>")
+    tema = page.eval_on_selector("#tema", "e => getComputedStyle(e).color")
+    artikel = page.eval_on_selector(".khd-artikel h2", "e => getComputedStyle(e).color")
+    assert tema == "rgb(0, 0, 0)" and artikel == "rgb(25, 56, 43)"
+    page.close()
+
+
+@pytest.mark.parametrize("enhet", ["iphone", "dator"])
+def test_redigera_i_designforhandsgranskningen(server, browser, enhet):
+    ctx = browser.new_context(**ENHETER[enhet])
+    page = ctx.new_page()
+    fel = []
+    page.on("pageerror", lambda e: fel.append(str(e)))
+    page.goto(server)
+    sokord = f"golvvärme design {enhet}"
+    page.fill("#qHuvud", sokord)
+    page.click("#addForm button[type=submit]")
+    rad = page.locator(".q-item").filter(has=page.locator(".q-kw", has_text=sokord))
+    rad.locator("[data-act=generate]").click()
+    rad.locator(".s-granskas").wait_for()
+    rad.locator("[data-act=open]").click()
+    page.locator("#statusBadge.s-granskas").wait_for()
+    ram = page.frame_locator("#previewFrame")
+    ram.locator(".khd-artikel .khd-hero h1").wait_for()
+    assert ram.locator(".khd-artikel h1").count() == 1
+    assert ram.locator(".khd-platshallare").count() == 4
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-17-designforhandsgranskning")
+    # Redigera ingressen i heron direkt i designen.
+    page.locator("label.toggle", has=page.locator("#editToggle")).click()
+    ingress = ram.locator('[data-falt="hero.ingress"]')
+    ingress.wait_for()
+    assert ingress.get_attribute("contenteditable") == "true"
+    # Markören placeras sist i stycket. (Playwright räknar inte med skalningen av förhandsvisningen när
+    # den klickar i en iframe; i en riktig webbläsare träffar klick och tryck rätt.)
+    ingress.evaluate("""e => { e.focus(); const r = document.createRange(); r.selectNodeContents(e); r.collapse(false);
+                               const s = getSelection(); s.removeAllRanges(); s.addRange(r); }""")
+    page.keyboard.type(" Redigerad i designen.")
+    page.locator("#saveState", has_text="Sparat").wait_for()
+    artikel_id = page.evaluate("state.current.id")
+    sparad = page.evaluate(f"fetch('/api/artiklar/{artikel_id}').then(r => r.json())")
+    assert sparad["innehall"]["dokument"]["hero"]["ingress"].endswith("Redigerad i designen.")
+    assert "Redigerad i designen." in sparad["innehall"]["html"]
+    # HTML-fliken visar den genererade koden, som inte kan ändras för hand.
+    page.click(".tab[data-tab=html]")
+    assert page.locator("#htmlEditor").get_attribute("readonly") is not None
+    assert "khd-artikel" in page.input_value("#htmlEditor")
     assert fel == []
     ctx.close()

@@ -5,14 +5,13 @@ och till sist den färdiga artikeln, så att gränssnittet kan visa vad som hän
 """
 
 import json
-import re
 from collections.abc import AsyncIterator
 
 import anthropic
 
 from . import config
 from .demo import slugify
-from .sanitize import rensa_html
+from . import design
 
 SYSTEMPROMPT = """Du är seniorskribent och SEO-specialist på Klimathemmet (klimathemmet.se), en svensk sajt om inomhusklimat, ventilation, uppvärmning, värmepumpar, isolering, fukt och energibesparing i villor och äldre hus.
 
@@ -39,81 +38,113 @@ Du skriver kompletta, sökordsoptimerade guideartiklar på svenska som besvarar 
 - slug: huvudsökordet med små bokstäver och bindestreck, utan å, ä och ö (å och ä blir a, ö blir o).
 - Längd: 1 400–2 200 ord brödtext, beroende på hur mycket ämnet kräver.
 
-# HTML-format (viktigt)
-Fältet html innehåller bara artikelns brödtext. Den ska INTE innehålla H1, <html>, <body>, <style>, <script>, inline-stil, bilder eller markdown. Använd endast taggarna p, h2, h3, ul, ol, li, strong, em, a, table, thead, tbody, tr, th, td, div, nav, details och summary, samt designens klasser nedan. Varje h2 ska ha ett id i slug-format som innehållsförteckningen länkar till.
+# Format: strukturerat innehåll (viktigt)
+Du skriver innehållet; Klimathemmets design läggs på automatiskt. Skriv därför ingen HTML-layout, inga klasser och ingen CSS. I textfält får du bara använda <strong>, <em> och <a href="URL">ankartext</a>. Rubriker (rubrik, underrubrik, meny, etikett) är ren text.
 
-Artikeln följer Klimathemmets design med dessa komponenter, i ungefär den här ordningen:
+Artikeln (fältet dokument) består av:
+- hero: etikett (kort kategorirad i versaler, t.ex. "VÄRME & ENERGI / GUIDE"), ingress (artikelns första stycke: 2–4 meningar som innehåller huvudsökordet och direkt besvarar vad läsaren vill veta) och gärna knapp (kort uppmaning, t.ex. "Se 7 åtgärder", med mal = id för den sektion den leder till). Titeln (H1) visas i heron.
+- intro: etikett, rubrik (H2), 2–4 stycken som sätter in läsaren i ämnet, och fakta: en mörkgrön snabböversikt med etikett, rubrik och 3–5 punkter (titel + kort text).
+- sektioner: 5–9 avsnitt i den ordning läsaren behöver dem. Varje sektion har id (slug), layout, etikett (kort, i versaler), rubrik (H2), meny (1–3 ord till innehållsförteckningen), valfri ingress, valfri bild och en lista med block. Minst en rubrik innehåller huvudsökordet.
+- sammanfattning: rubrik och 1–3 stycken.
+- faq: rubrik och 4–8 vanliga frågor med svar på 2–4 meningar.
+- relaterade_rubrik: rubrik för relaterade guider (själva länkarna väljs automatiskt).
+Innehållsförteckning och relaterade artiklar skapas automatiskt; skriv dem inte själv.
 
-<p class="kh-ingress">Ingress på 2–3 meningar som innehåller huvudsökordet och direkt besvarar vad läsaren vill veta.</p>
+## Layouter – välj efter innehållet
+- standard: vanligt textavsnitt.
+- mork: mörkgrön sektion i full bredd med bild bredvid texten. Passar när något förklaras, t.ex. hur ett system fungerar. Högst två per artikel.
+- bild: text och bild sida vid sida; sidan växlar automatiskt. Passar avsnitt där en bild gör texten tydligare.
+- losningar: gräddvit sektion i full bredd för åtgärder och rekommendationer, oftast med kort av varianten losning.
+Låt inte två sektioner i full bredd (mork, losningar) komma direkt efter varandra. Strukturen ska följa just det här ämnet; använd inte samma ordning och samma komponenter i varje artikel.
 
-<div class="kh-snabbfakta"><p class="kh-box-rubrik">Det viktigaste i korthet</p><ul><li>3–5 konkreta punkter</li></ul></div>
-
-<nav class="kh-toc" aria-label="Innehåll"><p class="kh-box-rubrik">Innehåll</p><ol><li><a href="#h2-id">H2-rubrik</a></li>…</ol></nav>
-
-Därefter 5–8 avsnitt med <h2 id="...">, gärna med <h3>, stycken och listor. Använd där de passar innehållet (inte alla måste vara med, och ingen ruta får vara utfyllnad):
-- Tipsruta: <div class="kh-tips"><p class="kh-box-rubrik">Tips</p><p>…</p></div>
-- Varningsruta: <div class="kh-varning"><p class="kh-box-rubrik">Tänk på</p><p>…</p></div>
-- För- och nackdelar: <div class="kh-procon"><div class="kh-pro"><p class="kh-box-rubrik">Fördelar</p><ul>…</ul></div><div class="kh-con"><p class="kh-box-rubrik">Nackdelar</p><ul>…</ul></div></div>
-- Tabell, till exempel för kostnader eller jämförelser: <div class="kh-tabell-wrap"><table class="kh-tabell"><thead><tr><th>…</th></tr></thead><tbody><tr><td>…</td></tr></tbody></table></div>
-- Numrerade steg: <ol class="kh-steg"><li><strong>Steg.</strong> Förklaring.</li></ol>
-
-Avsnittet med vanliga frågor är en h2 följd av:
-<div class="kh-faq"><details><summary>Fråga?</summary><p>Svar på 2–4 meningar.</p></details>…</div> med 4–6 frågor.
-
-Avsluta med:
-<div class="kh-sammanfattning"><p class="kh-box-rubrik">Sammanfattning</p><p>…</p></div>
+## Block – välj de som tillför något
+- stycke: text på 2–4 meningar.
+- underrubrik: H3 inom sektionen.
+- lista: punktlista. checklista: punkter med bock för saker att kontrollera, tänka på eller ta med.
+- steg: numrerade steg med rubrik och text, för instruktioner som görs i ordning.
+- notis: informationsruta med etikett (t.ex. "Viktigt:", "Tips:", "Kom ihåg:", "Rekommendation:") och text.
+- kort: 3–6 kort med rubrik och text. variant problem för problem, tecken och orsaker; variant losning för åtgärder och rekommendationer.
+- tabell: jämförelse med 2–4 kolumner (kolumner) och 3–8 rader (rader, en lista med celler per rad). Använd bara när läsaren faktiskt jämför alternativ, system eller kostnader.
+En artikel om ett enkelt ämne behöver inte både tabell, kort och steg. Ingen ruta eller lista får vara utfyllnad.
 
 # Bilder
-Artikeln har exakt fyra bilder. Placera markörerna <!--BILD:1-->, <!--BILD:2-->, <!--BILD:3--> och <!--BILD:4--> var för sig på egen rad i html:
-- BILD:1 är huvudbilden och står direkt efter innehållsförteckningen, före första h2.
-- BILD:2, BILD:3 och BILD:4 står direkt efter </h2> i tre olika avsnitt där en bild verkligen hjälper läsaren att förstå, i artikelns ordning. Inte i avsnittet med vanliga frågor.
-För varje bild i fältet bilder, i samma ordning:
+Artikeln har exakt fyra bilder. Bild 1 är huvudbilden i heron. Bild 2, 3 och 4 placeras i tre olika sektioner, en var, genom fältet bild i sektionen; de sektionerna ska ha layouten mork eller bild. Välj avsnitt där en bild verkligen hjälper läsaren, inte avsnittet med vanliga frågor.
+För varje bild i fältet bilder, i ordningen bild 1–4:
 - alt: naturlig svensk mening som beskriver vad som faktiskt syns på bilden, 8–16 ord. Börja inte med "Bild på". Ta med huvud- eller sekundärsökord bara där det är naturligt.
 - bildtext: kort bildtext på svenska, eller tom sträng.
 - prompt: detaljerad beskrivning på engelska av motivet för en bildgenerator. Välj motivet utifrån artikelns ämne och just det avsnittets innehåll: något konkret som en svensk villaägare känner igen (rätt typ av hus, rum, installation eller arbetsmoment). Huvudbilden visar ämnet i stort. Fotorealistisk, ljus redaktionell bild i skandinavisk miljö med naturligt ljus, utan text, logotyper eller vattenstämplar, och utan igenkännbara ansikten i närbild.
 """
 
-ARTIKEL_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "sokintention": {
-            "type": "object",
-            "properties": {
-                "typ": {"type": "string", "enum": ["informativ", "kommersiell", "transaktionell", "navigerande"]},
-                "beskrivning": {"type": "string"},
-                "malgrupp": {"type": "string"},
-            },
-            "required": ["typ", "beskrivning", "malgrupp"],
-            "additionalProperties": False,
-        },
-        "titel": {"type": "string"},
-        "slug": {"type": "string"},
-        "meta_titel": {"type": "string"},
-        "meta_beskrivning": {"type": "string"},
-        "html": {"type": "string"},
-        "bilder": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "alt": {"type": "string"},
-                    "bildtext": {"type": "string"},
-                    "prompt": {"type": "string"},
-                },
-                "required": ["alt", "bildtext", "prompt"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["sokintention", "titel", "slug", "meta_titel", "meta_beskrivning", "html", "bilder"],
-    "additionalProperties": False,
-}
+_TEXT = {"type": "string"}
+
+
+def _objekt(egenskaper: dict, kravda: list[str]) -> dict:
+    return {"type": "object", "properties": egenskaper, "required": kravda, "additionalProperties": False}
+
+
+_BLOCK = _objekt({
+    "typ": {"type": "string", "enum": ["stycke", "underrubrik", "lista", "checklista", "steg", "notis", "kort", "tabell"]},
+    "text": _TEXT,
+    "etikett": _TEXT,
+    "variant": {"type": "string", "enum": ["problem", "losning"]},
+    "punkter": {"type": "array", "items": _objekt({"rubrik": _TEXT, "text": _TEXT}, ["text"])},
+    "kolumner": {"type": "array", "items": _TEXT},
+    "rader": {"type": "array", "items": {"type": "array", "items": _TEXT}},
+}, ["typ"])
+
+_SEKTION = _objekt({
+    "id": _TEXT,
+    "layout": {"type": "string", "enum": ["standard", "mork", "bild", "losningar"]},
+    "etikett": _TEXT,
+    "rubrik": _TEXT,
+    "meny": _TEXT,
+    "ingress": _TEXT,
+    "bild": {"type": "integer", "enum": [2, 3, 4]},
+    "block": {"type": "array", "items": _BLOCK},
+}, ["id", "layout", "etikett", "rubrik", "meny", "block"])
+
+_DOKUMENT = _objekt({
+    "hero": _objekt({"etikett": _TEXT, "ingress": _TEXT, "knapp": _objekt({"text": _TEXT, "mal": _TEXT}, ["text", "mal"])},
+                    ["etikett", "ingress"]),
+    "intro": _objekt({
+        "etikett": _TEXT, "rubrik": _TEXT, "stycken": {"type": "array", "items": _TEXT},
+        "fakta": _objekt({"etikett": _TEXT, "rubrik": _TEXT,
+                          "punkter": {"type": "array", "items": _objekt({"titel": _TEXT, "text": _TEXT}, ["titel", "text"])}},
+                         ["etikett", "rubrik", "punkter"]),
+    }, ["etikett", "rubrik", "stycken", "fakta"]),
+    "sektioner": {"type": "array", "items": _SEKTION},
+    "sammanfattning": _objekt({"rubrik": _TEXT, "stycken": {"type": "array", "items": _TEXT}}, ["rubrik", "stycken"]),
+    "faq": _objekt({"rubrik": _TEXT, "fragor": {"type": "array", "items": _objekt({"fraga": _TEXT, "svar": _TEXT}, ["fraga", "svar"])}},
+                   ["rubrik", "fragor"]),
+    "relaterade_rubrik": _TEXT,
+}, ["hero", "intro", "sektioner", "sammanfattning", "faq", "relaterade_rubrik"])
+
+ARTIKEL_SCHEMA = _objekt({
+    "sokintention": _objekt({
+        "typ": {"type": "string", "enum": ["informativ", "kommersiell", "transaktionell", "navigerande"]},
+        "beskrivning": _TEXT,
+        "malgrupp": _TEXT,
+    }, ["typ", "beskrivning", "malgrupp"]),
+    "titel": _TEXT,
+    "slug": _TEXT,
+    "meta_titel": _TEXT,
+    "meta_beskrivning": _TEXT,
+    "dokument": _DOKUMENT,
+    "bilder": {"type": "array", "items": _objekt({"alt": _TEXT, "bildtext": _TEXT, "prompt": _TEXT}, ["alt", "bildtext", "prompt"])},
+}, ["sokintention", "titel", "slug", "meta_titel", "meta_beskrivning", "dokument", "bilder"])
 
 ANTAL_BILDER = 4
 
 
 class GenereringsFel(Exception):
     """Fel med ett meddelande som kan visas för användaren."""
+
+
+def _tidigare_text(tidigare: dict) -> str:
+    """Den tidigare versionen: dokumentet för strukturerade artiklar, annars HTML:en."""
+    if isinstance(tidigare.get("dokument"), dict):
+        return json.dumps(tidigare["dokument"], ensure_ascii=False)
+    return tidigare.get("html", "")
 
 
 def _anvandarprompt(huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None,
@@ -134,39 +165,22 @@ def _anvandarprompt(huvudsokord: str, sekundara: list[str], andringar: str | Non
         if tidigare:
             prompt += (
                 "\n\nTidigare version (behåll det som fungerar och åtgärda ändringarna):\n<tidigare_version>\n"
-                f"Titel: {tidigare.get('titel', '')}\n\n{tidigare.get('html', '')}\n</tidigare_version>"
+                f"Titel: {tidigare.get('titel', '')}\n\n{_tidigare_text(tidigare)}\n</tidigare_version>"
             )
     return prompt
-
-
-def _placera_bildmarkorer(body: str) -> str:
-    """Ser till att varje bildmarkör finns exakt en gång, även om AI:n missat någon."""
-    for n in range(1, ANTAL_BILDER + 1):
-        markor = f"<!--BILD:{n}-->"
-        forsta = body.find(markor)
-        if forsta != -1:
-            body = body[: forsta + len(markor)] + body[forsta + len(markor):].replace(markor, "")
-    saknas = [n for n in range(1, ANTAL_BILDER + 1) if f"<!--BILD:{n}-->" not in body]
-    if not saknas:
-        return body
-    h2_pos = [m.start() for m in re.finditer(r"<h2[\s>]", body)]
-    for n in reversed(saknas):
-        # Fördela saknade bilder före de första H2-avsnitten, annars sist i texten.
-        pos = h2_pos[min(n - 1, len(h2_pos) - 1)] if h2_pos else len(body)
-        body = body[:pos] + f"<!--BILD:{n}-->\n" + body[pos:]
-    return body
 
 
 def _artikel_fran_json(data: dict, huvudsokord: str, sekundara: list[str]) -> dict:
     bilder = list(data.get("bilder") or [])[:ANTAL_BILDER]
     while len(bilder) < ANTAL_BILDER:
         bilder.append({"alt": huvudsokord, "bildtext": "", "prompt": f"Editorial photo about {huvudsokord}, Scandinavian home"})
-    return {
+    # Designsystemet kontrollerar strukturen och placerar bilder som AI:n inte placerat (design.normalisera).
+    return design.bygg({
         "titel": data["titel"].strip(),
         "slug": slugify(data.get("slug") or huvudsokord) or slugify(huvudsokord),
         "meta_titel": data["meta_titel"].strip(),
         "meta_beskrivning": data["meta_beskrivning"].strip(),
-        "html": _placera_bildmarkorer(rensa_html(data["html"])),
+        "dokument": data["dokument"],
         "bilder": [
             {"id": i + 1, "alt": b["alt"].strip(), "bildtext": b["bildtext"].strip(), "prompt": b["prompt"].strip(), "url": None}
             for i, b in enumerate(bilder)
@@ -175,7 +189,7 @@ def _artikel_fran_json(data: dict, huvudsokord: str, sekundara: list[str]) -> di
         "huvudsokord": huvudsokord,
         "sekundara_sokord": sekundara,
         "demo": False,
-    }
+    }, fordela_bilder=True)
 
 
 def _slutlig_text(message) -> str:
@@ -241,6 +255,6 @@ async def generera_artikel(
     try:
         data = json.loads(_slutlig_text(message))
         artikel = _artikel_fran_json(data, huvudsokord, sekundara)
-    except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError):
         raise GenereringsFel("Svaret från Claude kunde inte tolkas. Försök igen.")
     yield {"typ": "klar", "artikel": artikel}

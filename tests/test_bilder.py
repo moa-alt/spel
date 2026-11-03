@@ -177,16 +177,17 @@ def test_fyra_bilder_genereras_som_webp_med_motiv_filnamn_och_placering(klient, 
     assert tjanst.anrop_med("Hero image") == 1
     a = klient.get(f"/api/artiklar/{aid}").json()
     info = {int(k): v for k, v in a["bildinfo"].items()}
-    assert info[1]["roll"] == "huvudbild" and info[1]["avsnitt"] == "Efter introduktionen"
+    assert info[1]["roll"] == "huvudbild" and info[1]["avsnitt"] == "Huvudbild vid introduktionen"
     assert [info[i]["roll"] for i in (2, 3, 4)] == ["avsnitt"] * 3
     assert info[2]["avsnitt"].startswith("Vad innebär") and info[3]["avsnitt"] == "Vad kostar det?"
     assert all("ventilation-i-gamla-hus" in info[i]["filnamn"] and info[i]["filnamn"].endswith(".webp") for i in info)
     assert len({info[i]["filnamn"] for i in info}) == 4
-    # Huvudbilden står efter introduktionen och de övriga direkt efter sina H2-rubriker.
+    # Huvudbilden står i heron bredvid introduktionen; de övriga i sina avsnitt, efter avsnittets rubrik.
     html_ = a["innehall"]["html"]
-    assert html_.index("<!--BILD:1-->") > html_.index("kh-toc") and html_.index("<!--BILD:1-->") < html_.index("<h2")
+    hero = html_.index("</header>")
+    assert html_.index("<!--BILD:1-->") < hero < html_.index("<h2")
     for bid in (2, 3, 4):
-        assert re.search(rf"</h2>\s*<!--BILD:{bid}-->", html_)
+        assert re.search(rf'<section class="khd-(section|feature)">(?:(?!</section>).)*</h2>(?:(?!</section>).)*<!--BILD:{bid}-->', html_)
 
 
 def test_delvis_misslyckad_generering_behaller_klara_bilder_och_forsoker_igen(klient, tjanst):

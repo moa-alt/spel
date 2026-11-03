@@ -75,6 +75,12 @@ const save = debounce(async () => {
     const res = await api(`/api/artiklar/${id}/innehall`, state.article, "PUT");
     if (state.current?.id !== id) return;
     $("#saveState").textContent = "Sparat";
+    if (res.html !== undefined && state.article.dokument) {
+      // Strukturerade artiklar: HTML:en härleds på servern och används av SEO-kontrollen och HTML-fliken.
+      state.article.html = res.html;
+      $("#htmlEditor").value = res.html;
+      renderChecks(); updateWordCount();
+    }
     hamtaKvalitet();
     if (res.status !== state.current.status) {
       if (state.current.status === "godkand") toast("Godkännandet upphävdes eftersom artikeln ändrades");
@@ -210,6 +216,9 @@ function setArticle(article) {
   $("#slug").readOnly = last;
   $("#slugLock").hidden = !last;
   $("#htmlEditor").value = article.html;
+  $("#htmlIntro").innerHTML = article.dokument
+    ? "Koden genereras från artikelns strukturerade innehåll och designsystemet. Redigera texten direkt i förhandsgranskningen (”Redigera direkt i texten”), metadata i SEO-fliken och bilderna i Bilder-fliken."
+    : "Artikelns HTML. <code>&lt;!--BILD:1--&gt;</code> markerar var bilderna placeras.";
   renderKategori();
   renderKvalitet();
   renderKeywords();
@@ -341,7 +350,10 @@ const PREVIEW_BASE_CSS = `
   @media (max-width: 640px) { body { padding: 24px 16px 60px; } .kh-h1 { font-size: 1.8em; } }
 `;
 
+const arStrukturerad = () => !!state.article?.dokument;
+
 function renderPreview() {
+  if (arStrukturerad()) { renderDesignPreview(); return; }
   const frame = $("#previewFrame");
   const prevScroll = frame.contentWindow?.scrollY || 0;
   const editable = state.editing ? ' contenteditable="true"' : "";
@@ -370,12 +382,130 @@ function renderPreview() {
 }
 const renderPreviewSoon = debounce(renderPreview, 350);
 
+/* ---------- Förhandsgranskning med designsystemet ---------- */
+// Samma renderare som WordPress-exporten (servern); bara bildadresserna skiljer.
+const DESIGN_PREVIEW_CSS = `
+  html, body { margin: 0; background: #fff; }
+  html { overflow: hidden; }
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  [data-falt][contenteditable="true"] { outline: 1px dashed rgba(49, 89, 67, .45); outline-offset: 3px; border-radius: 2px; cursor: text; }
+  [data-falt][contenteditable="true"]:focus { outline: 2px solid #315943; }
+  /* Platshållare för bilder som ännu inte skapats (visas bara i studion). */
+  .khd-artikel .khd-platshallare {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 260px;
+    height: 100%;
+    aspect-ratio: 16/10;
+    border-radius: 8px;
+    border: 1px dashed #b9cdbf;
+    background: repeating-linear-gradient(45deg, #eef4ef, #eef4ef 12px, #dce9df 12px, #dce9df 24px);
+    color: var(--khd-gron);
+    text-align: center;
+    padding: 16px;
+    font-size: 14px;
+  }
+  .khd-artikel .khd-platshallare small { color: var(--khd-dampad); max-width: 80%; }
+`;
+let designBegaran = 0;
+async function renderDesignPreview() {
+  const id = state.current?.id;
+  if (!id || !state.article) return;
+  const nr = ++designBegaran;
+  let res;
+  try { res = await api(`/api/artiklar/${id}/forhandsgranska`, state.article); } catch (err) { toast(err.message); return; }
+  if (nr !== designBegaran || state.current?.id !== id) return;
+  const frame = $("#previewFrame");
+  const prevScroll = frame.contentWindow?.scrollY || 0;
+  const kod = res.html.replaceAll('src="/api/bilder/', `src="${location.origin}/api/bilder/`);
+  frame.srcdoc = `<!doctype html><html lang="sv"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+    <link rel="stylesheet" href="${location.origin}/static/design.css">
+    <style>${DESIGN_PREVIEW_CSS}</style></head><body>${kod}</body></html>`;
+  frame.onload = () => {
+    frame.contentWindow.scrollTo(0, prevScroll);
+    const doc = frame.contentDocument;
+    fitFrame();
+    new ResizeObserver(fitFrame).observe(doc.body);
+    doc.addEventListener("click", (e) => {
+      const a = e.target.closest("a[href]");
+      if (!a) return;
+      e.preventDefault();
+      if (state.editing) return;
+      const href = a.getAttribute("href");
+      if (href.startsWith("#")) doc.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth" });
+      else window.open(href, "_blank", "noopener");
+    });
+    if (state.editing) aktiveraRedigering(doc);
+  };
+  updateWordCount();
+}
+
+// Varje redigerbart textfält är kopplat till sin plats i dokumentet (data-falt), så ändringar sparas strukturerat.
+function aktiveraRedigering(doc) {
+  doc.querySelectorAll("[data-falt]").forEach((el) => { el.contentEditable = "true"; el.spellcheck = true; });
+  doc.body.addEventListener("input", (e) => {
+    const el = e.target.closest?.("[data-falt]");
+    if (el) sattFalt(el.dataset.falt, el.dataset.rik === "1" ? el.innerHTML : el.textContent);
+  });
+  doc.body.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.closest?.("[data-falt]")) e.preventDefault();
+  });
+  doc.body.addEventListener("paste", (e) => {
+    if (!e.target.closest?.("[data-falt]")) return;
+    e.preventDefault();
+    doc.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+  });
+  // Vanliga frågor ska inte fällas ihop när du klickar för att redigera frågan.
+  doc.querySelectorAll("summary[data-falt]").forEach((s) => s.addEventListener("click", (e) => e.preventDefault()));
+}
+const sparaDesign = debounce(() => { save(); }, 300);
+function sattFalt(sokvag, varde) {
+  if (sokvag === "titel") {
+    state.article.titel = varde;
+    $("#titel").value = varde;
+    fitTitle(); renderSeo(); sparaDesign();
+    return;
+  }
+  const delar = sokvag.split(".").map((d) => (/^\d+$/.test(d) ? Number(d) : d));
+  let obj = state.article.dokument;
+  for (const d of delar.slice(0, -1)) {
+    obj = obj?.[d];
+    if (obj == null) return;
+  }
+  obj[delar.at(-1)] = varde;
+  sparaDesign();
+}
+
 // Låter iframen bli lika hög som artikeln så att sidan scrollar som en vanlig webbsida.
 function fitFrame() {
   const frame = $("#previewFrame");
   const body = frame.contentDocument?.body;
-  if (body) frame.style.height = `${Math.ceil(body.parentElement.scrollHeight)}px`;
+  if (!body) return;
+  const hojd = Math.ceil(body.parentElement.scrollHeight);
+  frame.style.height = `${hojd}px`;
+  if (!arStrukturerad()) {
+    Object.assign(frame.style, { width: "", maxWidth: "", transform: "", marginRight: "", marginBottom: "" });
+    return;
+  }
+  // Designen visas i verklig bredd (dator 1280 px, mobil 390 px) och skalas ner om ytan är smalare.
+  const wrap = $("#frameWrap");
+  const stil = getComputedStyle(wrap);
+  const tillganglig = wrap.clientWidth - parseFloat(stil.paddingLeft) - parseFloat(stil.paddingRight);
+  const bredd = wrap.classList.contains("mobile") ? 390 : 1280;
+  const skala = Math.min(1, tillganglig / bredd);
+  Object.assign(frame.style, {
+    width: `${bredd}px`, maxWidth: "none", transformOrigin: "top left",
+    transform: skala < 1 ? `scale(${skala})` : "",
+    marginRight: skala < 1 ? `${-Math.floor(bredd * (1 - skala))}px` : "",
+    marginBottom: skala < 1 ? `${-Math.floor(hojd * (1 - skala))}px` : "",
+  });
 }
+window.addEventListener("resize", debounce(fitFrame, 150));
 
 // Läser tillbaka texten från den redigerbara förhandsvisningen och ersätter bilderna med markörer igen.
 const syncFromPreview = debounce(() => {
@@ -406,7 +536,10 @@ function updateWordCount() {
 $$(".seg-btn").forEach((b) => b.addEventListener("click", () => {
   $$(".seg-btn").forEach((x) => x.classList.toggle("active", x === b));
   $("#frameWrap").classList.toggle("mobile", b.dataset.device === "mobile");
+  fitFrame();
 }));
+// På en liten skärm visas mobilvyn från början.
+if (matchMedia("(max-width: 700px)").matches) $('.seg-btn[data-device="mobile"]').click();
 $("#editToggle").addEventListener("change", (e) => {
   state.editing = e.target.checked;
   $("#frameWrap").classList.toggle("editing", state.editing);
@@ -1026,6 +1159,8 @@ function renderReview() {
   const kanRedigera = REDIGERBAR.includes(s) && rec.har_innehall;
   $("#editor").classList.toggle("readonly", !kanRedigera);
   $$("#editor .panel input, #editor .panel textarea:not(#codeOut), #titel").forEach((el) => { el.readOnly = !kanRedigera; });
+  // HTML:en i strukturerade artiklar genereras och redigeras inte för hand.
+  if (arStrukturerad()) $("#htmlEditor").readOnly = true;
   $("#editToggle").disabled = !kanRedigera;
   if (!kanRedigera && state.editing) { $("#editToggle").checked = false; state.editing = false; $("#frameWrap").classList.remove("editing"); renderPreview(); }
 }

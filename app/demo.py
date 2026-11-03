@@ -21,110 +21,121 @@ def _cap(text: str) -> str:
 
 
 def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
+    """Demoartikel i designsystemets strukturerade format. Layouten varierar något med sökordet."""
+    from . import design
+
     kw = huvudsokord.strip()
     kw_cap = _cap(kw)
     e = html.escape
     sek = [s.strip() for s in sekundara if s.strip()]
     sek_text = ", ".join(sek) if sek else "energi, inomhusklimat och kostnad"
+    # Samma sökord ger alltid samma variant; olika sökord ger olika layout, precis som AI-artiklarna.
+    variant = sum(map(ord, kw)) % 3
 
-    sections = [
-        ("vad-ar", f"Vad innebär {kw}?"),
-        ("fordelar", "Fördelar och nackdelar"),
-        ("kostnad", "Vad kostar det?"),
-        ("steg-for-steg", "Så går du tillväga – steg för steg"),
-        ("vanliga-fragor", "Vanliga frågor"),
-    ]
-    toc = "".join(f'<li><a href="#{sid}">{e(rubrik)}</a></li>' for sid, rubrik in sections)
+    def p(text: str) -> dict:
+        return {"typ": "stycke", "text": text}
 
-    sek_lista = "".join(f"<li>{e(_cap(s))}</li>" for s in sek) or "<li>Energieffektivitet</li><li>Inomhusklimat</li>"
+    forsta = {
+        "id": "vad-ar", "layout": "mork" if variant != 1 else "bild", "bild": 2,
+        "etikett": "Så fungerar det", "rubrik": f"Vad innebär {kw}?", "meny": "Så fungerar det",
+        "block": [
+            p(f"Det här är en <em>demotext</em> som visar hur artikeln kommer att se ut. När AI-genereringen är inkopplad ersätts den av en fullständig, sökordsoptimerad text om <strong>{e(kw)}</strong>."),
+            p(f"Texten tar upp de sekundära sökorden naturligt: {e(sek_text)}."),
+            {"typ": "underrubrik", "text": "Så fungerar det i praktiken"},
+            p("Korta stycken, tydliga underrubriker och konkreta exempel gör texten lättläst för både besökare och sökmotorer."),
+        ],
+    }
+    problem = {
+        "id": "vanliga-problem", "layout": "standard", "etikett": "Vanliga utmaningar",
+        "rubrik": "Vanliga problem och tecken att se upp med", "meny": "Vanliga problem",
+        "ingress": "Här är några tecken på att det är dags att se över lösningen i ditt hus.",
+        "block": [
+            {"typ": "kort", "variant": "problem", "punkter": [
+                {"rubrik": "Instängd luft", "text": "Luften känns tung, särskilt i sovrum och rum där många vistas länge."},
+                {"rubrik": "Kondens på fönster", "text": "Återkommande kondens på insidan kan tyda på hög luftfuktighet."},
+                {"rubrik": "Ojämn temperatur", "text": "Drag och kalla golv kan bero på hur luften rör sig i huset."},
+            ] + ([
+                {"rubrik": "Höga energikostnader", "text": "Värme som försvinner ut i onödan märks på elräkningen."},
+                {"rubrik": "Lukt och fukt", "text": "Unken lukt kan vara ett tidigt tecken på fuktproblem."},
+                {"rubrik": "Förändringar efter renovering", "text": "Tätare fönster och dörrar kan påverka husets klimat."},
+            ] if variant != 2 else [])},
+            {"typ": "notis", "etikett": "Viktigt:", "text": "Ett enskilt tecken bevisar inte att något är fel. Vid återkommande problem behöver orsaken undersökas."},
+        ],
+    }
+    for_och_nack = {
+        "id": "fordelar", "layout": "standard", "etikett": "Väg för- och nackdelar",
+        "rubrik": "Fördelar och nackdelar", "meny": "För- och nackdelar",
+        "block": [p("Det finns både vinster och saker att tänka på innan du bestämmer dig.")] + (
+            [{"typ": "tabell", "kolumner": ["", "Fördelar", "Nackdelar"], "rader": [
+                ["Inomhusklimat", "Bättre luft och mindre fukt", "Kan kräva ingrepp i huset"],
+                ["Ekonomi", "Lägre energikostnader på sikt", "Investeringskostnad"],
+                ["Underhåll", "Längre livslängd för huset", "Behöver regelbunden service"],
+            ]}] if variant != 1 else [
+                {"typ": "checklista", "punkter": ["Bättre inomhusklimat", "Lägre energikostnader på sikt", "Minskad risk för fukt och mögel"]},
+                {"typ": "notis", "etikett": "Tänk på:", "text": "Investeringen och eventuella ingrepp i huset behöver vägas mot nyttan."},
+            ]),
+    }
+    kostnad = {
+        "id": "kostnad", "layout": "bild", "bild": 3, "etikett": "Planering och budget",
+        "rubrik": "Vad kostar det?", "meny": "Kostnad",
+        "block": [
+            p("Priset varierar beroende på husets storlek och vilken lösning du väljer. En enkel åtgärd kostar ofta 5 000–15 000 kr, medan en helhetslösning kan landa på 80 000–150 000 kr."),
+            {"typ": "underrubrik", "text": "Vad påverkar kostnaden mest?"},
+            {"typ": "checklista", "punkter": ["Husets storlek och planlösning.", "Om befintliga installationer kan användas.", "Behov av håltagning eller nya kanaler.", "ROT-avdrag för arbetskostnaden."]},
+            {"typ": "notis", "etikett": "Tänk på:", "text": "Ingrepp i äldre hus kan påverka fuktbalansen. Rådfråga en sakkunnig innan du gör större förändringar."},
+        ],
+    }
+    steg = {
+        "id": "steg-for-steg", "layout": "bild", "bild": 4, "etikett": "Steg för steg",
+        "rubrik": "Så går du tillväga – steg för steg", "meny": "Steg för steg",
+        "block": [{"typ": "steg", "punkter": [
+            {"rubrik": "Inventera nuläget.", "text": "Kontrollera hur det fungerar i dag och notera problem."},
+            {"rubrik": "Jämför alternativ.", "text": "Väg kostnad mot nytta och husets förutsättningar."},
+            {"rubrik": "Ta in offerter.", "text": "Minst tre, och fråga efter referenser."},
+            {"rubrik": "Följ upp.", "text": "Mät och utvärdera efter installationen."},
+        ]}],
+    }
+    atgarder = {
+        "id": "atgarder", "layout": "losningar", "etikett": "Praktiska lösningar",
+        "rubrik": "Fyra åtgärder som ofta ger störst effekt", "meny": "Åtgärder",
+        "ingress": "Börja med de enklaste kontrollerna innan du planerar större ingrepp.",
+        "block": [{"typ": "kort", "variant": "losning", "punkter": [
+            {"rubrik": "Kontrollera det du redan har", "text": "Se till att befintliga ventiler och don är öppna och rena."},
+            {"rubrik": "Åtgärda det enkla först", "text": "Små justeringar kan räcka längre än man tror."},
+            {"rubrik": "Planera helheten", "text": "Tänk på hela huset innan du väljer en ny lösning."},
+            {"rubrik": "Anlita fackman", "text": "Låt en certifierad installatör bedöma större förändringar."},
+        ]}],
+    }
+    ordning = [forsta, problem, for_och_nack, kostnad, steg, atgarder]
+    if variant == 2:
+        ordning = [forsta, for_och_nack, problem, kostnad, atgarder, steg]
 
-    body = f"""
-<p class="kh-ingress">Funderar du på <strong>{e(kw)}</strong>? I den här guiden går vi igenom vad som är viktigt att tänka på, vilka alternativ som finns och hur du gör för att få ett bra resultat – med fokus på {e(sek_text)}.</p>
+    dokument = {
+        "hero": {"etikett": "Klimathemmet / Guide",
+                 "ingress": f"Funderar du på <strong>{e(kw)}</strong>? I den här guiden går vi igenom vad som är viktigt att tänka på, vilka alternativ som finns och hur du gör för att få ett bra resultat.",
+                 "knapp": {"text": "Se åtgärderna", "mal": "atgarder"}},
+        "intro": {
+            "etikett": "Det här behöver du veta", "rubrik": f"Kort om {kw}",
+            "stycken": [f"{e(kw_cap)} påverkar både inomhusklimatet och energiförbrukningen. Rätt lösning beror på husets ålder, konstruktion och nuvarande system.",
+                        "Ta alltid in flera offerter och kontrollera att installatören är certifierad."],
+            "fakta": {"etikett": "Snabböversikt", "rubrik": kw_cap, "punkter": [
+                {"titel": "Passar för", "text": "Villor och äldre hus där inomhusklimatet behöver förbättras."},
+                {"titel": "Första åtgärden", "text": "Kontrollera hur det fungerar i dag innan du bygger om."},
+                {"titel": "Ungefärlig kostnad", "text": "Från några tusenlappar till över 100 000 kr."},
+                {"titel": "Vid större problem", "text": "Låt en fackperson bedöma huset."},
+            ]},
+        },
+        "sektioner": ordning,
+        "sammanfattning": {"rubrik": f"Så lyckas du med {kw}", "stycken": [
+            f"{e(kw_cap)} handlar om att hitta rätt lösning för just ditt hus. Utgå från nuläget, jämför alternativen och anlita certifierade installatörer."]},
+        "faq": {"rubrik": f"Vanliga frågor om {kw}", "fragor": [
+            {"fraga": f"Hur vet jag om {kw} behövs i mitt hus?", "svar": "Ett svar som besvarar frågan kort och tydligt."},
+            {"fraga": "Kan jag göra det själv?", "svar": "Enklare delar kan du göra själv, men installationer bör utföras av fackman."},
+            {"fraga": "Finns det bidrag eller avdrag?", "svar": "Ofta går det att använda ROT-avdrag för arbetskostnaden."},
+            {"fraga": "Hur lång tid tar arbetet?", "svar": "Det beror på omfattningen; enklare åtgärder görs ofta på en dag."},
+        ]},
+    }
 
-<div class="kh-snabbfakta">
-  <p class="kh-box-rubrik">Det viktigaste i korthet</p>
-  <ul>
-    <li>{e(kw_cap)} påverkar både inomhusklimatet och energiförbrukningen.</li>
-    <li>Rätt lösning beror på husets ålder, konstruktion och nuvarande system.</li>
-    <li>Ta alltid in flera offerter och kontrollera att installatören är certifierad.</li>
-  </ul>
-</div>
-
-<nav class="kh-toc" aria-label="Innehåll">
-  <p class="kh-box-rubrik">Innehåll</p>
-  <ol>{toc}</ol>
-</nav>
-
-<!--BILD:1-->
-
-<h2 id="vad-ar">{e(sections[0][1])}</h2>
-<!--BILD:2-->
-<p>Det här är en <em>demotext</em> som visar hur artikeln kommer att se ut. När AI-genereringen är inkopplad ersätts den av en fullständig, sökordsoptimerad text som utgår från sökintentionen bakom <strong>{e(kw)}</strong>.</p>
-<p>Texten kommer att behandla de sekundära sökorden naturligt i löptexten och i underrubriker:</p>
-<ul>{sek_lista}</ul>
-
-<h3>Så fungerar det i praktiken</h3>
-<p>Ett stycke med fördjupning. Korta stycken, tydliga underrubriker och konkreta exempel gör texten lättläst både för besökare och sökmotorer.</p>
-
-<div class="kh-tips">
-  <p class="kh-box-rubrik">Tips</p>
-  <p>Börja med en enkel kontroll av nuläget innan du investerar – ofta räcker mindre åtgärder längre än man tror.</p>
-</div>
-
-<h2 id="fordelar">{e(sections[1][1])}</h2>
-<div class="kh-procon">
-  <div class="kh-pro">
-    <p class="kh-box-rubrik">Fördelar</p>
-    <ul><li>Bättre inomhusklimat</li><li>Lägre energikostnader på sikt</li><li>Minskad risk för fukt och mögel</li></ul>
-  </div>
-  <div class="kh-con">
-    <p class="kh-box-rubrik">Nackdelar</p>
-    <ul><li>Investeringskostnad</li><li>Kan kräva ingrepp i huset</li><li>Behöver underhåll</li></ul>
-  </div>
-</div>
-
-<h2 id="kostnad">{e(sections[2][1])}</h2>
-<!--BILD:3-->
-<p>Priset varierar beroende på husets storlek och vilken lösning du väljer. Tabellen visar ungefärliga nivåer.</p>
-<div class="kh-tabell-wrap">
-<table class="kh-tabell">
-  <thead><tr><th>Alternativ</th><th>Ungefärlig kostnad</th><th>Passar för</th></tr></thead>
-  <tbody>
-    <tr><td>Enkel åtgärd</td><td>5 000–15 000 kr</td><td>Mindre förbättringar</td></tr>
-    <tr><td>Mellanalternativ</td><td>20 000–60 000 kr</td><td>De flesta villor</td></tr>
-    <tr><td>Helhetslösning</td><td>80 000–150 000 kr</td><td>Större renoveringar</td></tr>
-  </tbody>
-</table>
-</div>
-
-<div class="kh-varning">
-  <p class="kh-box-rubrik">Tänk på</p>
-  <p>Ingrepp i äldre hus kan påverka fuktbalansen. Rådfråga en sakkunnig innan du gör större förändringar.</p>
-</div>
-
-<h2 id="steg-for-steg">{e(sections[3][1])}</h2>
-<!--BILD:4-->
-<ol class="kh-steg">
-  <li><strong>Inventera nuläget.</strong> Kontrollera hur det fungerar i dag och notera problem.</li>
-  <li><strong>Jämför alternativ.</strong> Väg kostnad mot nytta och husets förutsättningar.</li>
-  <li><strong>Ta in offerter.</strong> Minst tre, och fråga efter referenser.</li>
-  <li><strong>Följ upp.</strong> Mät och utvärdera efter installationen.</li>
-</ol>
-
-<h2 id="vanliga-fragor">{e(sections[4][1])}</h2>
-<div class="kh-faq">
-  <details><summary>Hur vet jag om {e(kw)} behövs i mitt hus?</summary><p>Ett svar som besvarar frågan kort och tydligt.</p></details>
-  <details><summary>Kan jag göra det själv?</summary><p>Enklare delar kan du göra själv, men installationer bör utföras av fackman.</p></details>
-  <details><summary>Finns det bidrag eller avdrag?</summary><p>Ofta går det att använda ROT-avdrag för arbetskostnaden.</p></details>
-</div>
-
-<div class="kh-sammanfattning">
-  <p class="kh-box-rubrik">Sammanfattning</p>
-  <p>{e(kw_cap)} handlar om att hitta rätt lösning för just ditt hus. Utgå från nuläget, jämför alternativen och anlita certifierade installatörer.</p>
-</div>
-""".strip()
-
-    # (alt-text, motiv till bildtjänsten) för huvudbilden och de tre avsnitten.
     bildmotiv = [
         (f"Ljust skandinaviskt hem där {kw} bidrar till ett behagligt inomhusklimat",
          f"Bright Scandinavian living room in a Swedish villa, showing the overall topic: {kw}"),
@@ -135,13 +146,10 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
         (f"Hantverkare arbetar steg för steg med {kw} i en svensk villa",
          f"Craftsman working step by step on {kw} in a Swedish villa, seen from behind, natural daylight"),
     ]
-    images = [
-        {"id": i + 1, "alt": alt, "bildtext": "", "prompt": prompt, "url": None}
-        for i, (alt, prompt) in enumerate(bildmotiv)
-    ]
+    images = [{"id": i + 1, "alt": alt, "bildtext": "", "prompt": prompt, "url": None} for i, (alt, prompt) in enumerate(bildmotiv)]
 
     meta_title = f"{kw_cap} – guide, kostnad & tips"
-    return {
+    return design.bygg({
         "titel": f"{kw_cap}: så gör du rätt",
         "slug": slugify(kw),
         "meta_titel": meta_title[:60],
@@ -149,9 +157,9 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
             f"Allt du behöver veta om {kw}: fördelar, kostnader och steg-för-steg-guide. "
             "Läs våra tips innan du sätter igång."
         )[:155],
-        "html": body,
+        "dokument": dokument,
         "bilder": images,
         "huvudsokord": kw,
         "sekundara_sokord": sek,
         "demo": True,
-    }
+    })

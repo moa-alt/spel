@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 ARTIKEL_CSS = Path(__file__).resolve().parent / "static" / "artikel.css"
+DESIGN_CSS = Path(__file__).resolve().parent / "static" / "design.css"
 BILD_MARKOR = re.compile(r"<!--BILD:(\d+)-->")
 
 
@@ -12,7 +13,7 @@ BILD_MARKOR = re.compile(r"<!--BILD:(\d+)-->")
 SIZES = "(max-width: 800px) 100vw, 760px"
 
 
-def figure_html(bild: dict, media: dict | None = None) -> str:
+def figure_html(bild: dict, media: dict | None = None, klass: str = "kh-bild", sizes: str = SIZES) -> str:
     """En bild från WordPress mediabibliotek, med srcset, width/height och lazy loading.
 
     Bilder som ännu inte laddats upp till WordPress tas inte med; studions egna adresser når inte besökarna.
@@ -26,13 +27,13 @@ def figure_html(bild: dict, media: dict | None = None) -> str:
         kandidater.append({"url": media["url"], "bredd": media["bredd"]})
     if len(kandidater) > 1:
         srcset = ", ".join(f'{e(k["url"])} {int(k["bredd"])}w' for k in sorted(kandidater, key=lambda k: k["bredd"]))
-        attr += [f'srcset="{srcset}"', f'sizes="{SIZES}"']
+        attr += [f'srcset="{srcset}"', f'sizes="{sizes}"']
     if media.get("bredd") and media.get("hojd"):
         attr += [f'width="{int(media["bredd"])}"', f'height="{int(media["hojd"])}"']
     attr.append(f'alt="{e(bild.get("alt", ""))}"')
     # Huvudbilden kan synas direkt och laddas därför genast; övriga bilder laddas när besökaren närmar sig dem.
     attr.append('fetchpriority="high" decoding="async"' if bild.get("id") == 1 else 'loading="lazy" decoding="async"')
-    fig = f'<figure class="kh-bild"><img {" ".join(attr)}>'
+    fig = f'<figure class="{klass}"><img {" ".join(attr)}>'
     caption = bild.get("bildtext", "").strip()
     if caption:
         fig += f"<figcaption>{html.escape(caption)}</figcaption>"
@@ -48,14 +49,30 @@ def article_inner_html(article: dict, media: dict[int, dict] | None = None, utan
     media = media or {}
     body = BILD_MARKOR.sub(
         lambda m: figure_html(bilder.get(int(m.group(1)), {}), media.get(int(m.group(1)))), article["html"])
-    if utan_lankar:
-        body = _LANK.sub(lambda m: m.group(2) if html.unescape(m.group(1)) in utan_lankar else m.group(0), body)
-    return body
+    return _utan_lankar(body, utan_lankar)
+
+
+def _utan_lankar(body: str, utan_lankar: set[str] | None) -> str:
+    if not utan_lankar:
+        return body
+    return _LANK.sub(lambda m: m.group(2) if html.unescape(m.group(1)) in utan_lankar else m.group(0), body)
 
 
 def wordpress_block(article: dict, inline_css: bool = True, media: dict[int, dict] | None = None,
                     utan_lankar: set[str] | None = None) -> str:
-    """Artikeln som ett Anpassad HTML-block. Utan inline_css förutsätts tilläggspluginet ladda CSS:en."""
+    """Artikeln som ett Anpassad HTML-block. Utan inline_css förutsätts tilläggspluginet ladda CSS:en.
+
+    Artiklar med strukturerat innehåll renderas med designsystemet (design.py och design.css),
+    exakt som i studions förhandsgranskning men med mediabibliotekets bildadresser.
+    """
+    from . import design
+
+    if design.ar_strukturerad(article):
+        bilder = {b["id"]: b for b in article.get("bilder", [])}
+        platser = {n: design.bild_wordpress(bilder.get(n, {"id": n}), (media or {}).get(n))
+                   for n in design.bildplatser(article["dokument"])}
+        stil = f"<style>\n{DESIGN_CSS.read_text(encoding='utf-8').strip()}\n</style>\n" if inline_css else ""
+        return f"<!-- wp:html -->\n{stil}{_utan_lankar(design.rendera(article, platser), utan_lankar)}\n<!-- /wp:html -->"
     stil = f"<style>\n{ARTIKEL_CSS.read_text(encoding='utf-8').strip()}\n</style>\n" if inline_css else ""
     return (
         "<!-- wp:html -->\n"

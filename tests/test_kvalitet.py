@@ -71,8 +71,19 @@ def test_sokord_och_metadata_blockerar(klient, falt, kod):
     assert r.status_code == 409 and "kan inte godkännas" in r.json()["detail"]
 
 
-def test_rubrikstruktur(klient):
+def som_aldre_artikel(aid):
+    """Som en artikel skapad innan designsystemet fanns: bara rå HTML, inget dokument."""
+    from app import db
+
+    def ta_bort(inn):
+        inn.pop("dokument", None)
+        return inn
+    db.andra_innehall(aid, ta_bort, db.STATUSAR)
+
+
+def test_rubrikstruktur_i_aldre_artiklar(klient):
     aid = ny_artikel(klient)
+    som_aldre_artikel(aid)
     html_ = klient.get(f"/api/artiklar/{aid}").json()["innehall"]["html"]
     andra(klient, aid, html="<h1>Extra</h1>" + html_)
     assert "h1_i_text" in koder(kontroll(klient, aid)["kritiska"])
@@ -101,12 +112,15 @@ def test_bildfiler_alt_texter_och_testbilder(klient, tjanst, monkeypatch):  # no
 
 
 def lank(vag, text="läs mer"):
-    return f'<p>Här finns en länk: <a href="{BAS}{vag}">{text}</a>.</p>'
+    return f'Här finns en länk: <a href="{BAS}{vag}">{text}</a>.'
 
 
 def med_lankar(klient, aid, *vagar):
-    html_ = klient.get(f"/api/artiklar/{aid}").json()["innehall"]["html"]
-    andra(klient, aid, html=html_ + "".join(lank(v, f"länk {i}") for i, v in enumerate(vagar)))
+    """Lägger till ett stycke med länkar i artikelns första sektion (det strukturerade innehållet)."""
+    innehall = klient.get(f"/api/artiklar/{aid}").json()["innehall"]
+    innehall["dokument"]["sektioner"][0]["block"].append(
+        {"typ": "stycke", "text": " ".join(lank(v, f"länk {i}") for i, v in enumerate(vagar))})
+    assert klient.put(f"/api/artiklar/{aid}/innehall", json=innehall).status_code == 200
 
 
 def test_interna_lankar_klassas(klient, sajt):

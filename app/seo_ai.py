@@ -226,10 +226,14 @@ _LANK = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.S | re.I)
 _HREF = re.compile(r'href="([^"]*)"')
 
 
-def kontrollera_lankar(html: str, tillatna: set[str]) -> tuple[str, list[dict]]:
-    """Behåller bara länkar till kända adresser, högst en länk per adress. Andra länkar blir vanlig text."""
-    sedda: set[str] = set()
-    lankar: list[dict] = []
+def kontrollera_lankar(html: str, tillatna: set[str], sedda: set[str] | None = None,
+                      lankar: list[dict] | None = None) -> tuple[str, list[dict]]:
+    """Behåller bara länkar till kända adresser, högst en länk per adress. Andra länkar blir vanlig text.
+
+    sedda och lankar kan delas mellan flera anrop, t.ex. alla textfält i ett artikeldokument.
+    """
+    sedda = set() if sedda is None else sedda
+    lankar = [] if lankar is None else lankar
 
     def ersatt(m: re.Match) -> str:
         href = _HREF.search(m.group(1))

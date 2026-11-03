@@ -284,8 +284,9 @@ Lägg in den CNAME-post som kommandot visar hos din domänleverantör. Certifika
 
 ### 8. Koppla WordPress, fortfarande utan publicering
 
-1. **Installera tilläggspluginet.** Kör `python scripts/bygg_wp_plugin.py` och ladda upp `dist/klimathemmet-studio.zip` under *Tillägg → Lägg till nytt → Ladda upp tillägg* i WordPress, och aktivera det. Pluginet gör tre saker:
+1. **Installera tilläggspluginet (version 1.2.0).** Kör `python scripts/bygg_wp_plugin.py` och ladda upp `dist/klimathemmet-studio.zip` under *Tillägg → Lägg till nytt → Ladda upp tillägg* i WordPress, och aktivera det. Har du redan en äldre version, ersätter du den med den nya när WordPress frågar. Pluginet gör fyra saker:
    - Det laddar artikeldesignen som en vanlig CSS-fil, så att ingen `<style>`-kod behöver ligga i inläggen.
+   - Från version 1.2.0 laddar det också designsystemets `design.css`, bara på inlägg som innehåller en artikel med den nya designen. Med en äldre version bäddar studion in CSS:en i inlägget i stället.
    - Det gör SEO-fälten för Yoast eller Rank Math skrivbara via REST API, bara för användare som får redigera inlägget.
    - Det märker inlägg som studion skapat, så att samma artikel aldrig publiceras två gånger.
 2. **Skapa ett applikationslösenord.** Gå till *Användare → Profil → Applikationslösenord* och använd gärna en egen användare med rollen Redaktör. Lägg sedan in uppgifterna:

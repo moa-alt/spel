@@ -14,6 +14,9 @@ TILLATNA_TAGGAR = {
     "details", "summary", "blockquote",
 }
 TOMMA_TAGGAR = {"br"}
+# I det strukturerade formatet får textfält bara innehålla fetstil, kursiv, radbrytning och länkar.
+INLINE_TAGGAR = {"strong", "em", "b", "i", "a", "br"}
+INLINE_ATTR = {"href"}
 TILLATNA_ATTR = {"class", "id", "href", "aria-label", "colspan", "rowspan", "scope", "title"}
 # Innehållet i de här taggarna kastas helt, inte bara själva taggen.
 KASTA_INNEHALL = {"script", "style", "iframe", "object", "embed", "svg", "math", "template", "noscript"}
@@ -26,8 +29,9 @@ def _saker_href(url: str) -> bool:
 
 
 class _Rensare(HTMLParser):
-    def __init__(self):
+    def __init__(self, taggar=TILLATNA_TAGGAR, attr=TILLATNA_ATTR, markorer=True):
         super().__init__(convert_charrefs=True)
+        self.taggar, self.attr, self.markorer = taggar, attr, markorer
         self.ut: list[str] = []
         self.oppna: list[str] = []
         self.kasta_djup = 0
@@ -36,11 +40,11 @@ class _Rensare(HTMLParser):
         if tag in KASTA_INNEHALL:
             self.kasta_djup += 1
             return
-        if self.kasta_djup or tag not in TILLATNA_TAGGAR:
+        if self.kasta_djup or tag not in self.taggar:
             return
         delar = [tag]
         for namn, varde in attrs:
-            if namn not in TILLATNA_ATTR or varde is None:
+            if namn not in self.attr or varde is None:
                 continue
             if namn == "href" and not _saker_href(varde):
                 continue
@@ -73,7 +77,7 @@ class _Rensare(HTMLParser):
 
     def handle_comment(self, data):
         m = BILD_MARKOR.match(data.strip())
-        if m and not self.kasta_djup:
+        if m and self.markorer and not self.kasta_djup:
             self.ut.append(f"<!--BILD:{m.group(1)}-->")
 
 
@@ -83,3 +87,12 @@ def rensa_html(raw: str) -> str:
     p.close()
     p.ut.extend(f"</{t}>" for t in reversed(p.oppna))
     return "".join(p.ut).strip()
+
+
+def rensa_inline(raw: str) -> str:
+    """Text till ett fält i artikeldokumentet: bara strong, em, br och säkra länkar; inga kommentarer."""
+    p = _Rensare(INLINE_TAGGAR, INLINE_ATTR, markorer=False)
+    p.feed(str(raw or ""))
+    p.close()
+    p.ut.extend(f"</{t}>" for t in reversed(p.oppna))
+    return " ".join("".join(p.ut).split())

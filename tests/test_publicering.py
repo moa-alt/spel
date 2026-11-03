@@ -15,9 +15,10 @@ STHLM_7 = time(7, 0)
 class FalskWordPress:
     """Minimal WordPress REST API i minnet, med Yoast och tilläggspluginet installerade."""
 
-    def __init__(self, plugin=True):
+    def __init__(self, plugin=True, plugin_version="1.2.0"):
         self.inlagg: dict[int, dict] = {}
         self.plugin = plugin
+        self.plugin_version = plugin_version
         self.fel_kvar = 0
         self.skapade = 0
 
@@ -29,6 +30,8 @@ class FalskWordPress:
         if path == "/":
             ns = ["wp/v2", "yoast/v1"] + (["klimathemmet-studio/v1"] if self.plugin else [])
             return httpx.Response(200, json={"namespaces": ns})
+        if path == "/klimathemmet-studio/v1/status" and self.plugin:
+            return httpx.Response(200, json={"version": self.plugin_version})
         if path == "/wp/v2/users/me":
             return httpx.Response(200, json={"name": "Moa", "capabilities": {"publish_posts": True}})
         if path == "/wp/v2/posts" and request.method == "OPTIONS":
