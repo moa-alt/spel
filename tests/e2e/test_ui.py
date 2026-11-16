@@ -639,6 +639,12 @@ def test_redigera_i_designforhandsgranskningen(server, browser, enhet):
     assert ram.locator(".khd-platshallare").count() == 4
     _ingen_sidscroll(page)
     _skarmbild(page, f"{enhet}-17-designforhandsgranskning")
+    # En långsam server (som i GitHub Actions) får inte fördröja redigeringsläget: varje ny hämtning av
+    # förhandsgranskningen tar nu en sekund, och redigeringen ska ändå slås på direkt.
+    def langsam(route):
+        time.sleep(1)
+        route.continue_()
+    page.route("**/forhandsgranska", langsam)
     # Redigera ingressen i heron direkt i designen.
     page.locator("label.toggle", has=page.locator("#editToggle")).click()
     ingress = ram.locator('[data-falt="hero.ingress"]')
@@ -654,6 +660,28 @@ def test_redigera_i_designforhandsgranskningen(server, browser, enhet):
     sparad = page.evaluate(f"fetch('/api/artiklar/{artikel_id}').then(r => r.json())")
     assert sparad["innehall"]["dokument"]["hero"]["ingress"].endswith("Redigerad i designen.")
     assert "Redigerad i designen." in sparad["innehall"]["html"]
+    # Av och på igen: fälten följer knappen direkt, och lyssnarna läggs inte till två gånger.
+    page.locator("label.toggle", has=page.locator("#editToggle")).click()
+    assert ingress.get_attribute("contenteditable") is None
+    page.locator("label.toggle", has=page.locator("#editToggle")).click()
+    assert ingress.get_attribute("contenteditable") == "true"
+    # En ny förhandsgranskning (här efter en ändrad rubrik) laddas med redigeringen påslagen.
+    page.fill("#titel", f"Golvvärme i designen {enhet}")
+    ram.locator("h1", has_text=f"Golvvärme i designen {enhet}").wait_for()
+    ingress = ram.locator('[data-falt="hero.ingress"]')
+    assert ingress.get_attribute("contenteditable") == "true"
+    ingress.evaluate("""e => { e.focus(); const r = document.createRange(); r.selectNodeContents(e); r.collapse(false);
+                               const s = getSelection(); s.removeAllRanges(); s.addRange(r); }""")
+    page.keyboard.type(" Igen.")
+    # Vänta tills servern har sparat (fungerar även när testmaskinen är långsam).
+    for _ in range(100):
+        sparad = page.evaluate(f"fetch('/api/artiklar/{artikel_id}').then(r => r.json())")
+        if sparad["innehall"]["dokument"]["hero"]["ingress"].endswith("Igen."):
+            break
+        page.wait_for_timeout(200)
+    ingress_text = sparad["innehall"]["dokument"]["hero"]["ingress"]
+    assert ingress_text.endswith("Redigerad i designen. Igen.") and ingress_text.count("Igen.") == 1
+    assert sparad["innehall"]["titel"] == f"Golvvärme i designen {enhet}"
     # HTML-fliken visar den genererade koden, som inte kan ändras för hand.
     page.click(".tab[data-tab=html]")
     assert page.locator("#htmlEditor").get_attribute("readonly") is not None

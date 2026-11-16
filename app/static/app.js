@@ -440,28 +440,44 @@ async function renderDesignPreview() {
       if (href.startsWith("#")) doc.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth" });
       else window.open(href, "_blank", "noopener");
     });
-    if (state.editing) aktiveraRedigering(doc);
+    sattRedigerbar(doc, state.editing);
   };
   updateWordCount();
 }
 
 // Varje redigerbart textfält är kopplat till sin plats i dokumentet (data-falt), så ändringar sparas strukturerat.
-function aktiveraRedigering(doc) {
-  doc.querySelectorAll("[data-falt]").forEach((el) => { el.contentEditable = "true"; el.spellcheck = true; });
-  doc.body.addEventListener("input", (e) => {
-    const el = e.target.closest?.("[data-falt]");
-    if (el) sattFalt(el.dataset.falt, el.dataset.rik === "1" ? el.innerHTML : el.textContent);
+// Förhandsgranskningen innehåller alltid fälten, så redigeringen slås på och av direkt i det dokument som
+// redan visas, utan att hämta en ny förhandsgranskning från servern.
+function sattRedigerbar(doc, pa) {
+  if (!doc?.body) return;
+  if (!doc.khdRedigering) {
+    // Lyssnarna läggs till en gång per dokument och gör ingenting när redigeringen är avslagen.
+    doc.khdRedigering = true;
+    doc.body.addEventListener("input", (e) => {
+      const el = e.target.closest?.("[data-falt]");
+      if (state.editing && el) sattFalt(el.dataset.falt, el.dataset.rik === "1" ? el.innerHTML : el.textContent);
+    });
+    doc.body.addEventListener("keydown", (e) => {
+      if (state.editing && e.key === "Enter" && e.target.closest?.("[data-falt]")) e.preventDefault();
+    });
+    doc.body.addEventListener("paste", (e) => {
+      if (!state.editing || !e.target.closest?.("[data-falt]")) return;
+      e.preventDefault();
+      doc.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+    });
+    // Vanliga frågor ska inte fällas ihop när du klickar för att redigera frågan.
+    doc.querySelectorAll("summary[data-falt]").forEach((s) => s.addEventListener("click", (e) => {
+      if (state.editing) e.preventDefault();
+    }));
+  }
+  doc.querySelectorAll("[data-falt]").forEach((el) => {
+    if (pa) {
+      el.contentEditable = "true";
+      el.spellcheck = true;
+    } else {
+      el.removeAttribute("contenteditable");
+    }
   });
-  doc.body.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && e.target.closest?.("[data-falt]")) e.preventDefault();
-  });
-  doc.body.addEventListener("paste", (e) => {
-    if (!e.target.closest?.("[data-falt]")) return;
-    e.preventDefault();
-    doc.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
-  });
-  // Vanliga frågor ska inte fällas ihop när du klickar för att redigera frågan.
-  doc.querySelectorAll("summary[data-falt]").forEach((s) => s.addEventListener("click", (e) => e.preventDefault()));
 }
 const sparaDesign = debounce(() => { save(); }, 300);
 function sattFalt(sokvag, varde) {
@@ -543,7 +559,9 @@ if (matchMedia("(max-width: 700px)").matches) $('.seg-btn[data-device="mobile"]'
 $("#editToggle").addEventListener("change", (e) => {
   state.editing = e.target.checked;
   $("#frameWrap").classList.toggle("editing", state.editing);
-  renderPreview();
+  const doc = $("#previewFrame").contentDocument;
+  if (arStrukturerad() && doc?.querySelector(".khd-artikel")) sattRedigerbar(doc, state.editing);
+  else renderPreview();
   if (state.editing) toast("Klicka i texten för att redigera");
 });
 
