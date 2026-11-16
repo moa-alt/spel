@@ -50,12 +50,14 @@ Du skriver kompletta, sökordsoptimerade guideartiklar på svenska som besvarar 
 # Format: strukturerat innehåll (viktigt)
 Du skriver innehållet; Klimathemmets design läggs på automatiskt. Skriv därför ingen HTML-layout, inga klasser och ingen CSS. I textfält får du bara använda <strong>, <em> och <a href="URL">ankartext</a>. Rubriker (rubrik, underrubrik, meny, etikett) är ren text.
 
+Alla fält ska alltid finnas med. När ett fält inte används skriver du en tom sträng "", en tom lista [] eller 0 för bild.
+
 Artikeln (fältet dokument) består av:
-- hero: etikett (kort kategorirad i versaler, t.ex. "VÄRME & ENERGI / GUIDE"), ingress (artikelns första stycke: 2–4 meningar som innehåller huvudsökordet och direkt besvarar vad läsaren vill veta) och gärna knapp (kort uppmaning, t.ex. "Se 7 åtgärder", med mal = id för den sektion den leder till). Titeln (H1) visas i heron.
-- intro: etikett, rubrik (H2), 2–4 stycken som sätter in läsaren i ämnet, och fakta: en mörkgrön snabböversikt med etikett, rubrik och 3–5 punkter (titel + kort text).
-- sektioner: 5–9 avsnitt i den ordning läsaren behöver dem. Varje sektion har id (slug), layout, etikett (kort, i versaler), rubrik (H2), meny (1–3 ord till innehållsförteckningen), valfri ingress, valfri bild och en lista med block. Minst en rubrik innehåller huvudsökordet.
+- hero: etikett (kort kategorirad i versaler, t.ex. "VÄRME & ENERGI / GUIDE"), ingress (artikelns första stycke: 2–4 meningar som innehåller huvudsökordet och direkt besvarar vad läsaren vill veta), knapp_text (kort uppmaning, t.ex. "Se 7 åtgärder", eller "") och knapp_mal (id för sektionen knappen leder till, eller ""). Titeln (H1) visas i heron.
+- intro: etikett, rubrik (H2), stycken (2–4 stycken som sätter in läsaren i ämnet), och en mörkgrön snabböversikt: fakta_etikett, fakta_rubrik och fakta (3–5 punkter med titel och kort text).
+- sektioner: 5–9 avsnitt i den ordning läsaren behöver dem. Varje sektion har id (slug), layout, etikett (kort, i versaler), rubrik (H2), meny (1–3 ord till innehållsförteckningen), ingress (eller ""), bild (2, 3 eller 4, eller 0 för ingen bild) och en lista med block. Minst en rubrik innehåller huvudsökordet.
 - sammanfattning: rubrik och 1–3 stycken.
-- faq: rubrik och 4–8 vanliga frågor med svar på 2–4 meningar.
+- faq: rubrik och fragor: 4–8 vanliga frågor, var och en med fraga och svar (2–4 meningar).
 - relaterade_rubrik: rubrik för relaterade guider (själva länkarna väljs automatiskt).
 Innehållsförteckning och relaterade artiklar skapas automatiskt; skriv dem inte själv.
 
@@ -63,17 +65,18 @@ Innehållsförteckning och relaterade artiklar skapas automatiskt; skriv dem int
 - standard: vanligt textavsnitt.
 - mork: mörkgrön sektion i full bredd med bild bredvid texten. Passar när något förklaras, t.ex. hur ett system fungerar. Högst två per artikel.
 - bild: text och bild sida vid sida; sidan växlar automatiskt. Passar avsnitt där en bild gör texten tydligare.
-- losningar: gräddvit sektion i full bredd för åtgärder och rekommendationer, oftast med kort av varianten losning.
+- losningar: gräddvit sektion i full bredd för åtgärder och rekommendationer, oftast med block av typen kort_losning.
 Låt inte två sektioner i full bredd (mork, losningar) komma direkt efter varandra. Strukturen ska följa just det här ämnet; använd inte samma ordning och samma komponenter i varje artikel.
 
 ## Block – välj de som tillför något
+Varje block har fälten typ, rubrik, text, punkter och rader. Fyll i de fält blocktypen använder och lämna de övriga tomma ("" eller []).
 - stycke: text på 2–4 meningar.
-- underrubrik: H3 inom sektionen.
-- lista: punktlista. checklista: punkter med bock för saker att kontrollera, tänka på eller ta med.
-- steg: numrerade steg med rubrik och text, för instruktioner som görs i ordning.
-- notis: informationsruta med etikett (t.ex. "Viktigt:", "Tips:", "Kom ihåg:", "Rekommendation:") och text.
-- kort: 3–6 kort med rubrik och text. variant problem för problem, tecken och orsaker; variant losning för åtgärder och rekommendationer.
-- tabell: jämförelse med 2–4 kolumner (kolumner) och 3–8 rader (rader, en lista med celler per rad). Använd bara när läsaren faktiskt jämför alternativ, system eller kostnader.
+- underrubrik: text = H3:ans rubrik inom sektionen.
+- lista: punktlista. checklista: punkter med bock för saker att kontrollera, tänka på eller ta med. Varje punkt har text (rubrik "").
+- steg: numrerade steg, för instruktioner som görs i ordning. Varje punkt har rubrik och text.
+- notis: informationsruta. rubrik = etikett (t.ex. "Viktigt:", "Tips:", "Kom ihåg:", "Rekommendation:") och text.
+- kort_problem och kort_losning: 3–6 kort i punkter, med rubrik och text. kort_problem för problem, tecken och orsaker; kort_losning för åtgärder och rekommendationer.
+- tabell: jämförelse i rader. Första raden är kolumnrubrikerna (2–4 kolumner), följande 3–8 rader innehållet. Använd bara när läsaren faktiskt jämför alternativ, system eller kostnader.
 En artikel om ett enkelt ämne behöver inte både tabell, kort och steg. Ingen ruta eller lista får vara utfyllnad.
 
 # Bilder
@@ -91,56 +94,71 @@ def _objekt(egenskaper: dict, kravda: list[str]) -> dict:
     return {"type": "object", "properties": egenskaper, "required": kravda, "additionalProperties": False}
 
 
-_BLOCK = _objekt({
-    "typ": {"type": "string", "enum": ["stycke", "underrubrik", "lista", "checklista", "steg", "notis", "kort", "tabell"]},
-    "text": _TEXT,
-    "etikett": _TEXT,
-    "variant": {"type": "string", "enum": ["problem", "losning"]},
-    "punkter": {"type": "array", "items": _objekt({"rubrik": _TEXT, "text": _TEXT}, ["text"])},
-    "kolumner": {"type": "array", "items": _TEXT},
-    "rader": {"type": "array", "items": {"type": "array", "items": _TEXT}},
-}, ["typ"])
+def _alla(egenskaper: dict) -> dict:
+    """Ett objekt där alla egenskaper är obligatoriska. Valfria egenskaper gör grammatiken mycket större."""
+    return _objekt(egenskaper, list(egenskaper))
 
-_SEKTION = _objekt({
+
+_LISTA = lambda items: {"type": "array", "items": items}  # noqa: E731
+_PUNKT = _alla({"rubrik": _TEXT, "text": _TEXT})
+
+# Strukturerade svar kompileras till en grammatik som har en storleksgräns. Schemat hålls därför platt och
+# helt utan valfria egenskaper: varje block har samma fem fält, och oanvända fält är tomma. Den nästlade
+# strukturen med valfria fält (sektioner[].block[] med sex valfria egenskaper) gav felet
+# "The compiled grammar is too large". dokument_fran_ai() gör om svaret till designsystemets format.
+_BLOCK = _alla({
+    "typ": {"type": "string", "enum": ["stycke", "underrubrik", "lista", "checklista", "steg", "notis",
+                                       "kort_problem", "kort_losning", "tabell"]},
+    "rubrik": _TEXT,
+    "text": _TEXT,
+    "punkter": _LISTA(_PUNKT),
+    "rader": _LISTA(_LISTA(_TEXT)),
+})
+
+_SEKTION = _alla({
     "id": _TEXT,
     "layout": {"type": "string", "enum": ["standard", "mork", "bild", "losningar"]},
     "etikett": _TEXT,
     "rubrik": _TEXT,
     "meny": _TEXT,
     "ingress": _TEXT,
-    "bild": {"type": "integer", "enum": [2, 3, 4]},
-    "block": {"type": "array", "items": _BLOCK},
-}, ["id", "layout", "etikett", "rubrik", "meny", "block"])
+    "bild": {"type": "integer", "enum": [0, 2, 3, 4]},
+    "block": _LISTA(_BLOCK),
+})
 
-_DOKUMENT = _objekt({
-    "hero": _objekt({"etikett": _TEXT, "ingress": _TEXT, "knapp": _objekt({"text": _TEXT, "mal": _TEXT}, ["text", "mal"])},
-                    ["etikett", "ingress"]),
-    "intro": _objekt({
-        "etikett": _TEXT, "rubrik": _TEXT, "stycken": {"type": "array", "items": _TEXT},
-        "fakta": _objekt({"etikett": _TEXT, "rubrik": _TEXT,
-                          "punkter": {"type": "array", "items": _objekt({"titel": _TEXT, "text": _TEXT}, ["titel", "text"])}},
-                         ["etikett", "rubrik", "punkter"]),
-    }, ["etikett", "rubrik", "stycken", "fakta"]),
-    "sektioner": {"type": "array", "items": _SEKTION},
-    "sammanfattning": _objekt({"rubrik": _TEXT, "stycken": {"type": "array", "items": _TEXT}}, ["rubrik", "stycken"]),
-    "faq": _objekt({"rubrik": _TEXT, "fragor": {"type": "array", "items": _objekt({"fraga": _TEXT, "svar": _TEXT}, ["fraga", "svar"])}},
-                   ["rubrik", "fragor"]),
+_DOKUMENT = _alla({
+    "hero": _alla({"etikett": _TEXT, "ingress": _TEXT, "knapp_text": _TEXT, "knapp_mal": _TEXT}),
+    "intro": _alla({"etikett": _TEXT, "rubrik": _TEXT, "stycken": _LISTA(_TEXT), "fakta_etikett": _TEXT,
+                    "fakta_rubrik": _TEXT, "fakta": _LISTA(_alla({"titel": _TEXT, "text": _TEXT}))}),
+    "sektioner": _LISTA(_SEKTION),
+    "sammanfattning": _alla({"rubrik": _TEXT, "stycken": _LISTA(_TEXT)}),
+    "faq": _alla({"rubrik": _TEXT, "fragor": _LISTA(_alla({"fraga": _TEXT, "svar": _TEXT}))}),
     "relaterade_rubrik": _TEXT,
-}, ["hero", "intro", "sektioner", "sammanfattning", "faq", "relaterade_rubrik"])
+})
 
-ARTIKEL_SCHEMA = _objekt({
-    "sokintention": _objekt({
-        "typ": {"type": "string", "enum": ["informativ", "kommersiell", "transaktionell", "navigerande"]},
-        "beskrivning": _TEXT,
-        "malgrupp": _TEXT,
-    }, ["typ", "beskrivning", "malgrupp"]),
-    "titel": _TEXT,
-    "slug": _TEXT,
-    "meta_titel": _TEXT,
-    "meta_beskrivning": _TEXT,
-    "dokument": _DOKUMENT,
-    "bilder": {"type": "array", "items": _objekt({"alt": _TEXT, "bildtext": _TEXT, "prompt": _TEXT}, ["alt", "bildtext", "prompt"])},
-}, ["sokintention", "titel", "slug", "meta_titel", "meta_beskrivning", "dokument", "bilder"])
+
+def _artikelschema(dokument: dict) -> dict:
+    return _alla({
+        "sokintention": _alla({
+            "typ": {"type": "string", "enum": ["informativ", "kommersiell", "transaktionell", "navigerande"]},
+            "beskrivning": _TEXT,
+            "malgrupp": _TEXT,
+        }),
+        "titel": _TEXT,
+        "slug": _TEXT,
+        "meta_titel": _TEXT,
+        "meta_beskrivning": _TEXT,
+        "dokument": dokument,
+        "bilder": _LISTA(_alla({"alt": _TEXT, "bildtext": _TEXT, "prompt": _TEXT})),
+    })
+
+
+ARTIKEL_SCHEMA = _artikelschema(_DOKUMENT)
+# Reservformat om API:et ändå avvisar grammatiken: dokumentet skrivs som en JSON-sträng med samma
+# struktur och kontrolleras helt av design.normalisera. Grammatiken blir då mycket liten.
+ENKELT_SCHEMA = _artikelschema(_TEXT)
+ENKEL_INSTRUKTION = ("\n\nSkriv fältet dokument som en JSON-sträng (inte som ett objekt) med exakt den struktur som beskrivs "
+                     "för dokument: hero, intro, sektioner med block, sammanfattning, faq och relaterade_rubrik.")
 
 ANTAL_BILDER = 4
 
@@ -179,6 +197,53 @@ def _anvandarprompt(huvudsokord: str, sekundara: list[str], andringar: str | Non
     return prompt
 
 
+def _text_eller_tom(v) -> str:
+    return v if isinstance(v, str) else ""
+
+
+def _block_fran_ai(b: dict) -> dict | None:
+    """Ett block i det platta AI-formatet som ett block i designsystemets format."""
+    if not isinstance(b, dict):
+        return None
+    typ, punkter = b.get("typ"), [p for p in b.get("punkter") or [] if isinstance(p, dict)]
+    if typ in ("kort_problem", "kort_losning"):
+        return {"typ": "kort", "variant": "losning" if typ == "kort_losning" else "problem", "punkter": punkter}
+    if typ == "tabell":
+        rader = [r for r in b.get("rader") or [] if isinstance(r, list)]
+        return {"typ": "tabell", "kolumner": rader[0] if rader else [], "rader": rader[1:]}
+    if typ == "notis":
+        return {"typ": "notis", "etikett": _text_eller_tom(b.get("rubrik")), "text": _text_eller_tom(b.get("text"))}
+    if typ in ("lista", "checklista"):
+        return {"typ": typ, "punkter": [p.get("text") or p.get("rubrik") or "" for p in punkter]}
+    if typ == "steg":
+        return {"typ": "steg", "punkter": punkter}
+    if typ == "underrubrik":
+        return {"typ": "underrubrik", "text": _text_eller_tom(b.get("text")) or _text_eller_tom(b.get("rubrik"))}
+    return {"typ": "stycke", "text": _text_eller_tom(b.get("text"))}
+
+
+def dokument_fran_ai(d: dict) -> dict:
+    """Gör om AI:ns platta svar till designsystemets dokument. design.normalisera kontrollerar resten."""
+    d = d if isinstance(d, dict) else {}
+    hero, intro = d.get("hero") or {}, d.get("intro") or {}
+    return {
+        "hero": {"etikett": hero.get("etikett"), "ingress": hero.get("ingress"),
+                 "knapp": {"text": hero.get("knapp_text"), "mal": hero.get("knapp_mal")}},
+        "intro": {"etikett": intro.get("etikett"), "rubrik": intro.get("rubrik"), "stycken": intro.get("stycken"),
+                  "fakta": {"etikett": intro.get("fakta_etikett"), "rubrik": intro.get("fakta_rubrik"),
+                            "punkter": intro.get("fakta")}},
+        "sektioner": [
+            {"id": s.get("id"), "layout": s.get("layout"), "etikett": s.get("etikett"), "rubrik": s.get("rubrik"),
+             "meny": s.get("meny"), "ingress": s.get("ingress"), "bild": s.get("bild") or None,
+             "block": [b for b in (_block_fran_ai(b) for b in s.get("block") or []) if b]}
+            for s in d.get("sektioner") or [] if isinstance(s, dict)
+        ],
+        "sammanfattning": d.get("sammanfattning"),
+        "faq": d.get("faq"),
+        "relaterade_rubrik": d.get("relaterade_rubrik"),
+    }
+
+
 def _artikel_fran_json(data: dict, huvudsokord: str, sekundara: list[str]) -> dict:
     bilder = list(data.get("bilder") or [])[:ANTAL_BILDER]
     while len(bilder) < ANTAL_BILDER:
@@ -189,7 +254,7 @@ def _artikel_fran_json(data: dict, huvudsokord: str, sekundara: list[str]) -> di
         "slug": slugify(data.get("slug") or huvudsokord) or slugify(huvudsokord),
         "meta_titel": data["meta_titel"].strip(),
         "meta_beskrivning": data["meta_beskrivning"].strip(),
-        "dokument": data["dokument"],
+        "dokument": dokument_fran_ai(data["dokument"]),
         "bilder": [
             {"id": i + 1, "alt": b["alt"].strip(), "bildtext": b["bildtext"].strip(), "prompt": b["prompt"].strip(), "url": None}
             for i, b in enumerate(bilder)
@@ -212,16 +277,20 @@ def _klient() -> anthropic.AsyncAnthropic:
     return anthropic.AsyncAnthropic(api_key=config.settings.anthropic_api_key, max_retries=3)
 
 
-def anropsparametrar(prompt: str, reservmodell: bool) -> dict:
-    """Parametrarna till Messages API. Nyckeln skickas av SDK:n i ett huvud, aldrig här."""
+def anropsparametrar(prompt: str, reservmodell: bool, enkelt_format: bool = False) -> dict:
+    """Parametrarna till Messages API. Nyckeln skickas av SDK:n i ett huvud, aldrig här.
+
+    enkelt_format: dokumentet skrivs som en JSON-sträng (reservväg om grammatiken skulle bli för stor).
+    """
     s = config.settings
+    schema = ENKELT_SCHEMA if enkelt_format else ARTIKEL_SCHEMA
     parametrar = {
         "model": s.claude_model,
         "max_tokens": 64000,
         "thinking": {"type": "adaptive"},
-        "output_config": {"effort": s.claude_effort, "format": {"type": "json_schema", "schema": ARTIKEL_SCHEMA}},
+        "output_config": {"effort": s.claude_effort, "format": {"type": "json_schema", "schema": schema}},
         "system": [{"type": "text", "text": SYSTEMPROMPT, "cache_control": {"type": "ephemeral"}}],
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": prompt + (ENKEL_INSTRUKTION if enkelt_format else "")}],
     }
     if reservmodell:
         # Om modellen avböjer tar en reservmodell över automatiskt (beta).
@@ -244,6 +313,11 @@ def felorsak(e: anthropic.APIStatusError) -> tuple[str, str, str | None]:
     typ = str((fel or {}).get("type") or e.type or "")
     meddelande = str((fel or {}).get("message") or "")
     return maskera(typ), maskera(" ".join(meddelande.split()))[:500], e.request_id
+
+
+def _ar_grammatikfel(meddelande: str) -> bool:
+    m = meddelande.lower()
+    return "grammar" in m or "too complex" in m or "compil" in m
 
 
 def _ar_reservfel(meddelande: str) -> bool:
@@ -287,12 +361,13 @@ async def generera_artikel(
     client = _klient()
     prompt = _anvandarprompt(huvudsokord, sekundara, andringar, tidigare, lankmal)
     reservmodell = config.settings.claude_reservmodell
+    enkelt_format = False
     yield {"typ": "steg", "steg": 0}
     skriver = False
     tecken = 0
     while True:
         try:
-            async with client.messages.stream(**anropsparametrar(prompt, reservmodell)) as stream:
+            async with client.messages.stream(**anropsparametrar(prompt, reservmodell, enkelt_format)) as stream:
                 async for event in stream:
                     if event.type == "content_block_start" and event.content_block.type == "text" and not skriver:
                         skriver = True
@@ -305,6 +380,12 @@ async def generera_artikel(
             break
         except anthropic.BadRequestError as e:
             _, meddelande, request_id = felorsak(e)
+            if not enkelt_format and not skriver and _ar_grammatikfel(meddelande):
+                # Svarsformatet avvisades som för komplext: nytt försök med dokumentet som JSON-sträng.
+                log.warning("Claude godtog inte svarsformatet (%s, request-id %s); försöker med det enkla formatet.",
+                            meddelande, request_id or "-")
+                enkelt_format = True
+                continue
             if reservmodell and not skriver and _ar_reservfel(meddelande):
                 # Reservmodellerna är valfria: godtas de inte av kontot görs ett nytt försök utan dem.
                 log.warning("Claude godtog inte reservmodellerna (%s, request-id %s); försöker utan dem. "
@@ -336,6 +417,8 @@ async def generera_artikel(
     yield {"typ": "steg", "steg": 3}
     try:
         data = json.loads(_slutlig_text(message))
+        if isinstance(data.get("dokument"), str):
+            data["dokument"] = json.loads(data["dokument"])
         artikel = _artikel_fran_json(data, huvudsokord, sekundara)
     except (json.JSONDecodeError, KeyError, TypeError, AttributeError, ValueError):
         raise GenereringsFel("Svaret från Claude kunde inte tolkas. Försök igen.")

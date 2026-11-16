@@ -298,11 +298,13 @@ def test_lankar_i_textfalten_kontrolleras_over_hela_artikeln():
 
 def test_ai_svaret_blir_ett_strukturerat_dokument():
     from app import ai_writer
+    from test_ai_writer import _artikeldata, ai_dokument
 
-    data = {"titel": "Värmepump i villa: guide", "slug": "värmepump i villa", "meta_titel": "Värmepump i villa – guide",
-            "meta_beskrivning": "Allt om värmepump i villa.", "sokintention": {"typ": "informativ", "beskrivning": "b", "malgrupp": "m"},
-            "dokument": dokument(sektioner=[{**s, "bild": None} for s in dokument()["sektioner"]]),
-            "bilder": [{"alt": f"Alt {i}", "bildtext": "", "prompt": f"Prompt {i}"} for i in range(4)]}
+    # Claude har inte placerat några bilder (bild 0 överallt): servern fördelar dem.
+    platt = ai_dokument()
+    for s in platt["sektioner"]:
+        s["bild"] = 0
+    data = _artikeldata(platt) | {"slug": "värmepump i villa"}
     a = ai_writer._artikel_fran_json(data, "värmepump i villa", [])
     assert a["slug"] == "varmepump-i-villa" and a["dokument"]["version"] == 2
     assert [b["id"] for b in a["bilder"]] == [1, 2, 3, 4]
@@ -323,7 +325,8 @@ def test_ai_schemat_foljer_reglerna_for_strukturerade_svar():
             for v in s:
                 yield from objekt(v)
     alla = list(objekt(ARTIKEL_SCHEMA))
-    assert len(alla) > 10 and all(o.get("additionalProperties") is False and set(o["required"]) <= set(o["properties"]) for o in alla)
+    # Alla egenskaper är obligatoriska (valfria egenskaper gör grammatiken för stor).
+    assert len(alla) > 10 and all(o.get("additionalProperties") is False and set(o["required"]) == set(o["properties"]) for o in alla)
     text = json.dumps(ARTIKEL_SCHEMA)
     assert not any(n in text for n in ("minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum"))
 
