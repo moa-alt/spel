@@ -171,7 +171,38 @@ def status():
 
 @app.post("/api/exportera")
 def exportera(article: Article):
+    """Export utan sparad artikel. Bilder kräver mediabibliotekets adresser och tas därför inte med."""
     return {"kod": wordpress_block(article.model_dump())}
+
+
+BILD_STATUSTEXT = {
+    "klar": "finns i mediabiblioteket och följer med",
+    "ej_uppladdad": "är inte uppladdad till WordPress mediabibliotek ännu",
+    "saknas": "är inte skapad",
+    "genereras": "håller på att skapas",
+    "testbild": "är en testbild och kan inte användas på sajten",
+    "fil_saknas": "har ingen bildfil på servern",
+}
+
+
+@app.post("/api/artiklar/{artikel_id}/exportera")
+def exportera_artikel(artikel_id: int, article: Article):
+    """WordPress-koden för Kopiera kod och fliken WordPress-kod. Ändrar ingenting, varken här eller i WordPress.
+
+    Bilder som laddats upp till mediabiblioteket får sina permanenta adresser där, med srcset, mått och alt-text,
+    i samma platser som i förhandsgranskningen. Övriga bilder kan inte tas med (studions egna adresser kräver
+    inloggning och når inte besökarna) och listas i svaret.
+    """
+    artikel = _hamta_eller_404(artikel_id)
+    if not artikel["har_innehall"]:
+        raise HTTPException(409, "Artikeln har ingen text ännu.")
+    innehall = _klientinnehall(article, artikel)
+    media = bilder.lagrade_media(artikel_id, innehall)
+    status = bilder.mediastatus(artikel_id, innehall)
+    for s in status:
+        s["text"] = f"Bild {s['id']} {BILD_STATUSTEXT[s['status']]}."
+    return {"kod": wordpress_block(innehall, media=media), "bilder": status,
+            "saknas": [s["id"] for s in status if s["status"] != "klar"]}
 
 
 @app.post("/api/wordpress/kontrollera")
@@ -266,6 +297,7 @@ def hamta_artikel(artikel_id: int):
     artikel["kvalitet"] = kvalitet.kontrollera(artikel)
     artikel["lankklasser"] = kvalitet.lankar(artikel)
     artikel["bildinfo"] = bilder.bildinfo(artikel["innehall"])
+    artikel["mediastatus"] = bilder.mediastatus(artikel_id, artikel["innehall"])
     artikel["bilder_pagar"] = bilder.pagar(artikel_id)
     return artikel
 
@@ -533,6 +565,36 @@ async def byt_bild(artikel_id: int, bild_id: int, request: Request):
         raise HTTPException(400, str(e))
     db.logga(artikel_id, "bild_bytt", f"Bild {bild_id} byttes mot en egen bild")
     return resultat
+
+
+class Mediagodkannande(BaseModel):
+    bekraftad: bool = False
+
+
+@app.post("/api/artiklar/{artikel_id}/bilder/mediabiblioteket")
+async def bilder_till_mediabiblioteket(artikel_id: int, body: Mediagodkannande):
+    """Laddar upp artikelns färdiga bilder till WordPress mediabibliotek, efter ditt uttryckliga godkännande.
+
+    Skapar bara mediefiler. Inget inlägg skapas, ändras, schemaläggs eller publiceras, och publiceringsläget
+    påverkas inte. En bild som redan finns i mediabiblioteket laddas inte upp igen.
+    """
+    if not body.bekraftad:
+        raise HTTPException(400, "Bekräfta att bilderna ska laddas upp till WordPress mediabibliotek.")
+    artikel = _hamta_eller_404(artikel_id)
+    if not artikel["har_innehall"] or artikel["status"] in ("genereras", "avvisad"):
+        raise HTTPException(409, "Bilderna kan inte laddas upp i artikelns nuvarande status.")
+    if bilder.pagar(artikel_id):
+        raise HTTPException(409, "Vänta tills bildgenereringen är klar.")
+    if not any(b.get("fil") for b in artikel["innehall"].get("bilder", [])):
+        raise HTTPException(409, "Artikeln har inga färdiga bilder att ladda upp.")
+    try:
+        async with WordPress() as wp:
+            media = await bilder.ladda_upp_till_wordpress(wp, artikel)
+    except WordPressFel as e:
+        raise HTTPException(502, str(e))
+    db.logga(artikel_id, "bilder_till_mediabiblioteket",
+             f"Bild {', '.join(map(str, sorted(media)))} finns i mediabiblioteket. Inget inlägg ändrades.")
+    return {"uppladdade": sorted(media), "bilder": bilder.mediastatus(artikel_id, artikel["innehall"])}
 
 
 @app.post("/api/artiklar/{artikel_id}/bilder/{bild_id}/godkann")

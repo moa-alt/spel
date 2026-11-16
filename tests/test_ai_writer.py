@@ -391,3 +391,30 @@ def test_generering_i_studion_hela_vagen(claude, klient):
     # Förhandsgranskningen och exporten fungerar med den genererade artikeln.
     assert "khd-hero" in klient.post(f"/api/artiklar/{a['id']}/forhandsgranska", json=inn).json()["html"]
     assert "khd-artikel" in klient.post("/api/exportera", json=inn).json()["kod"]
+
+
+# ---------- Skrivstil: inga tankstreck ----------
+
+def test_instruktionerna_forbjuder_tankstreck_men_tillater_bindestreck():
+    from app.ai_writer import SYSTEMPROMPT, _anvandarprompt
+
+    regel = SYSTEMPROMPT[SYSTEMPROMPT.index("# Skiljetecken"):SYSTEMPROMPT.index("# SEO")]
+    assert "Använd aldrig tankstreck (– eller —) som skiljetecken" in regel
+    assert "punkt" in regel and "komma" in regel
+    # Regeln gäller all text, även metatexter och bildtexter.
+    assert all(ord_ in regel for ord_ in ("rubriker", "metabeskrivning", "alt-texter", "bildtexter"))
+    # Bindestreck i sammansättningar och intervall mellan tal är fortfarande tillåtna.
+    assert "FTX-system" in regel and "ROT-avdrag" in regel and "20–25 grader" in regel
+    # Prompten föregår med gott exempel: utanför exemplen används inga tankstreck som skiljetecken.
+    from app.kvalitet import tankstreck
+    utan_exempel = SYSTEMPROMPT.replace(regel, "")
+    assert [rad for rad in utan_exempel.splitlines() if tankstreck({"titel": rad})] == []
+    # Vid omskrivning efter begärda ändringar påminns AI:n om regeln.
+    assert "tankstreck" in _anvandarprompt("fukt i källare", [], andringar="Kortare", tidigare={"titel": "x", "html": "<p>y</p>"})
+
+
+def test_regeln_skickas_med_i_varje_anrop(claude):
+    from app import ai_writer
+
+    params = ai_writer.anropsparametrar("Skriv en artikel", reservmodell=False)
+    assert "Använd aldrig tankstreck" in params["system"][0]["text"]

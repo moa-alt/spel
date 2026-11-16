@@ -6,7 +6,10 @@ Regler som alltid gäller:
 - När artikeltexten genereras om behålls alla färdiga bilder.
 - Varje bild sparas på servern (STUDIO_DATA/bilder) så fort den är klar, så att ett fel på en
   bild aldrig tar bort de andra. En misslyckad omgenerering behåller den tidigare bilden.
-- Bilderna laddas upp till WordPress mediabibliotek först när artikeln skickas dit.
+- Bilderna laddas upp till WordPress mediabibliotek först när artikeln skickas dit, eller när du
+  uttryckligen godkänner uppladdningen för att kunna kopiera koden (bilder_till_mediabiblioteket).
+  Mediabibliotekets adresser sparas, så att Kopiera kod och fliken WordPress-kod får permanenta
+  bildadresser utan nya anrop till WordPress.
 
 API-nyckeln för bildtjänsten läses bara på servern och skickas aldrig till webbläsaren eller loggarna.
 """
@@ -15,6 +18,7 @@ import asyncio
 import base64
 import hashlib
 import io
+import json
 import logging
 import re
 import shutil
@@ -528,6 +532,8 @@ def _misslyckad(artikel_id: int, bild_id: int, meddelande: str) -> None:
 def init() -> None:
     with db._conn() as c:
         c.executescript(SCHEMA)
+        # Mediabibliotekets adress, storlekar och mått (JSON), så att exporten kan använda dem.
+        db.lagg_till_kolumn(c, "bild_media", "info", "TEXT")
         rader = c.execute("SELECT id FROM artiklar WHERE innehall LIKE '%\"genereras\"%'").fetchall()
 
     # Bilder som genererades när servern stängdes av kan inte återupptas.
@@ -560,14 +566,82 @@ def _media_info(m: dict, bild: dict) -> dict:
             "storlekar": sorted({s["bredd"]: s for s in storlekar}.values(), key=lambda s: s["bredd"])}
 
 
+def placerade(innehall: dict) -> list[int]:
+    """Bilderna som har en plats i artikeln, i läsordning."""
+    return [int(x) for x in BILD_MARKOR.findall(innehall.get("html", ""))]
+
+
+def _spara_media(artikel_id: int, sha256: str, info: dict) -> None:
+    with db._conn() as c:
+        c.execute("INSERT OR REPLACE INTO bild_media (artikel_id, sha256, wp_media_id, skapad, info) VALUES (?, ?, ?, ?, ?)",
+                  (artikel_id, sha256, info["id"], db.nu(), json.dumps(info)))
+
+
+def lagrade_media(artikel_id: int, innehall: dict | None) -> dict[int, dict]:
+    """Bildnummer → mediabibliotekets uppgifter för bilder som redan laddats upp i sin nuvarande version.
+
+    Läser bara studions databas; WordPress anropas inte. En bild som skapats om har en ny kontrollsumma
+    och räknas som ej uppladdad tills den laddats upp igen.
+    """
+    if not innehall:
+        return {}
+    ut: dict[int, dict] = {}
+    with db._conn() as c:
+        for b in innehall.get("bilder", []):
+            if not b.get("fil") or not b.get("sha256") or b.get("kalla") == "test":
+                continue
+            rad = c.execute("SELECT info FROM bild_media WHERE artikel_id = ? AND sha256 = ?",
+                            (artikel_id, b["sha256"])).fetchone()
+            if rad and rad[0]:
+                try:
+                    info = json.loads(rad[0])
+                except ValueError:
+                    continue
+                if info.get("url", "").startswith(("https://", "http://")):
+                    ut[b["id"]] = info
+    return ut
+
+
+def mediastatus(artikel_id: int, innehall: dict | None) -> list[dict]:
+    """Varje placerad bild och om den följer med i WordPress-koden.
+
+    status: klar (i mediabiblioteket), ej_uppladdad (finns i studion), saknas (inte skapad),
+    genereras, testbild eller fil_saknas.
+    """
+    if not innehall:
+        return []
+    alla = {b["id"]: b for b in innehall.get("bilder", [])}
+    media = lagrade_media(artikel_id, innehall)
+    ut = []
+    for bid in placerade(innehall):
+        b = alla.get(bid) or {}
+        if bid in media:
+            status = "klar"
+        elif b.get("status") == "genereras":
+            status = "genereras"
+        elif not b.get("fil"):
+            status = "saknas"
+        elif b.get("kalla") == "test":
+            status = "testbild"
+        elif (fil := sokvag(artikel_id, b["fil"])) is None or not fil.is_file():
+            status = "fil_saknas"
+        else:
+            status = "ej_uppladdad"
+        ut.append({"id": bid, "status": status, "alt": b.get("alt", ""), "url": (media.get(bid) or {}).get("url")})
+    return ut
+
+
 async def ladda_upp_till_wordpress(wp, artikel: dict) -> dict[int, dict]:
-    """Laddar upp artikelns färdiga bilder till mediabiblioteket. En bild laddas aldrig upp två gånger."""
+    """Laddar upp artikelns färdiga bilder till mediabiblioteket. En bild laddas aldrig upp två gånger.
+
+    Skapar bara mediefiler; inget inlägg skapas, ändras eller publiceras här.
+    """
     innehall = artikel["innehall"]
-    placerade = {int(x) for x in BILD_MARKOR.findall(innehall.get("html", ""))}
+    platser = set(placerade(innehall))
     namn = filnamn(innehall)
     media: dict[int, dict] = {}
     for b in innehall.get("bilder", []):
-        if b["id"] not in placerade or not b.get("fil"):
+        if b["id"] not in platser or not b.get("fil"):
             continue
         if b.get("kalla") == "test":
             raise WordPressFel("Artikeln har testbilder (STUDIO_BILDTJANST=test). Skapa riktiga bilder innan den skickas till WordPress.")
@@ -580,11 +654,9 @@ async def ladda_upp_till_wordpress(wp, artikel: dict) -> dict[int, dict]:
         m = await wp.hamta_media(rad[0]) if rad else None
         if m is None:
             m = await wp.ladda_upp_media(fil.read_bytes(), f"{namn[b['id']]}.webp", b.get("alt", ""), b.get("alt", "")[:100])
-            with db._conn() as c:
-                c.execute("INSERT OR REPLACE INTO bild_media (artikel_id, sha256, wp_media_id, skapad) VALUES (?, ?, ?, ?)",
-                          (artikel["id"], b["sha256"], m["id"], db.nu()))
             db.logga(artikel["id"], "bild_uppladdad", f"Bild {b['id']} → mediabiblioteket (id {m['id']})")
         elif (m.get("alt_text") or "") != b.get("alt", ""):
             m = await wp.uppdatera_media(m["id"], {"alt_text": b.get("alt", "")})
         media[b["id"]] = _media_info(m, b)
+        _spara_media(artikel["id"], b["sha256"], media[b["id"]])
     return media

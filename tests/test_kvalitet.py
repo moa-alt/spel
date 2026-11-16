@@ -239,3 +239,39 @@ def test_html_med_regex_specialtecken_i_lankar_ar_ofarligt(klient, sajt):
     aid = ny_artikel(klient, "isolera vinden")
     med_lankar(klient, aid, "/ftx-ventilation/?a=1&b=(2)")
     assert re.search("ftx", str(klient.get(f"/api/artiklar/{aid}").json()["lankklasser"]))
+
+
+# ---------- Skrivstil: tankstreck ----------
+
+@pytest.mark.parametrize("text, flaggas", [
+    ("Värmepumpen – rätt dimensionerad – sparar pengar.", True),
+    ("Ett system—som fungerar", True),
+    ("Fukt i källaren - så gör du", True),
+    ("– Inledande tankstreck", True),
+    ("Håll 20–25 grader inomhus.", False),
+    ("Kostar 10 000 – 20 000 kronor", False),
+    ("Hus från 1960–1970 och 1970-talshus", False),
+    ("FTX-system, ROT-avdrag och el-patron", False),
+])
+def test_tankstreck_som_skiljetecken_flaggas_men_inte_bindestreck(text, flaggas):
+    from app.kvalitet import tankstreck
+
+    assert bool(tankstreck({"html": f"<p>{text}</p>"})) is flaggas
+
+
+def test_tankstreck_syns_i_kvalitetskontrollen(klient):
+    from app import kvalitet
+    from test_bilder import artikel_med_text
+
+    aid = artikel_med_text(klient)
+    a = klient.get(f"/api/artiklar/{aid}").json()
+    assert "tankstreck" not in {p["kod"] for p in a["kvalitet"]["varningar"]}
+    assert "Inga tankstreck som skiljetecken" in a["kvalitet"]["ok"]
+    inn = a["innehall"]
+    inn["dokument"]["intro"]["stycken"][0] = "Ventilationen är viktig – särskilt i gamla hus."
+    inn["bilder"][0]["alt"] = "Ett gammalt hus — med självdrag"
+    klient.put(f"/api/artiklar/{aid}/innehall", json=inn)
+    varning = next(p for p in klient.get(f"/api/artiklar/{aid}").json()["kvalitet"]["varningar"] if p["kod"] == "tankstreck")
+    assert "2 tankstreck" in varning["text"] and "särskilt i gamla hus" in varning["text"]
+    # Det är en varning, inget kritiskt fel: artikeln kan fortfarande godkännas.
+    assert "tankstreck" not in {p["kod"] for p in kvalitet.kontrollera(klient.get(f"/api/artiklar/{aid}").json())["kritiska"]}

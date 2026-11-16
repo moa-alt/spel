@@ -851,18 +851,54 @@ $$(".tab").forEach((tab) => tab.addEventListener("click", () => {
 }));
 
 /* ---------- Export och WordPress ---------- */
-async function exportCode() {
-  return (await api("/api/exportera", state.article)).kod;
+async function exportera() {
+  // En sparad artikel exporteras av servern med mediabibliotekets bildadresser.
+  if (!state.current) return api("/api/exportera", state.article);
+  return api(`/api/artiklar/${state.current.id}/exportera`, state.article);
+}
+function visaExportbilder(res) {
+  const lista = res.bilder || [];
+  const kan = !!state.current && state.status.wordpress;
+  const ejUppladdade = lista.filter((b) => b.status === "ej_uppladdad");
+  $("#codeBilder").hidden = !lista.length;
+  $("#codeBilder").classList.toggle("varning", (res.saknas || []).length > 0);
+  $("#codeBildlista").innerHTML = lista.map((b) =>
+    `<li class="${b.status === "klar" ? "" : "saknas"}" data-bild="${b.id}">${esc(b.text)}</li>`).join("");
+  $("#mediaBtn").hidden = !ejUppladdade.length;
+  $("#mediaBtn").disabled = !kan;
+  $("#mediaHint").textContent = !ejUppladdade.length ? ""
+    : kan ? "Inget inlägg skapas eller publiceras." : "WordPress är inte konfigurerat.";
 }
 async function loadExport() {
-  try { $("#codeOut").value = await exportCode(); } catch (err) { toast(err.message); }
+  try {
+    const res = await exportera();
+    $("#codeOut").value = res.kod;
+    visaExportbilder(res);
+  } catch (err) { toast(err.message); }
 }
 $("#copyBtn").addEventListener("click", async () => {
   try {
-    const kod = await exportCode();
-    await navigator.clipboard.writeText(kod);
-    toast("Koden är kopierad – klistra in i ett Anpassad HTML-block");
+    const res = await exportera();
+    await navigator.clipboard.writeText(res.kod);
+    const saknas = res.saknas || [];
+    toast(saknas.length
+      ? `Koden är kopierad, men bild ${saknas.join(", ")} saknas i koden. Se fliken WordPress-kod.`
+      : "Koden är kopierad. Klistra in den i ett Anpassad HTML-block.");
   } catch (err) { toast(err.message || "Kunde inte kopiera"); }
+});
+$("#mediaBtn").addEventListener("click", async () => {
+  if (!state.current) return;
+  if (!confirm("Ladda upp artikelns färdiga bilder till WordPress mediabibliotek?\n\n"
+    + "Bilderna läggs i mediabiblioteket med sina alt-texter så att de får permanenta adresser. "
+    + "Inget inlägg skapas, ändras eller publiceras, och publiceringsläget påverkas inte.")) return;
+  const knapp = $("#mediaBtn");
+  knapp.disabled = true;
+  try {
+    const res = await api(`/api/artiklar/${state.current.id}/bilder/mediabiblioteket`, { bekraftad: true });
+    toast(`Bild ${res.uppladdade.join(", ")} finns nu i mediabiblioteket.`);
+    await loadExport();
+    await openArticle(state.current.id, { keepView: true });
+  } catch (err) { toast(err.message); knapp.disabled = false; }
 });
 $("#wpBtn").addEventListener("click", async () => {
   if (!state.current) return;

@@ -480,7 +480,14 @@
 
         <!-- WordPress-kod -->
         <section class="panel" data-panel="code">
-          <p class="muted panel-intro">Den här koden läggs i ett <strong>Anpassad HTML</strong>-block i WordPress. CSS:en är inbäddad och scopad till <code>.kh-artikel</code>. Bilderna läggs in med mediabibliotekets adresser först när artikeln skickas till WordPress.</p>
+          <p class="muted panel-intro">Den här koden läggs i ett <strong>Anpassad HTML</strong>-block i WordPress. CSS:en är inbäddad och scopad till artikeln. Bilderna läggs in med permanenta adresser från WordPress mediabibliotek, i samma platser som i förhandsgranskningen. En bild som inte finns i mediabiblioteket kan inte följa med, eftersom studions egna bildadresser kräver inloggning.</p>
+          <div class="code-bilder" id="codeBilder" hidden>
+            <ul class="code-bildlista" id="codeBildlista"></ul>
+            <div class="code-bildatgard">
+              <button class="btn btn-ghost btn-sm" id="mediaBtn" type="button">Ladda upp bilderna till mediabiblioteket…</button>
+              <span class="muted" id="mediaHint"></span>
+            </div>
+          </div>
           <textarea id="codeOut" class="code" readonly spellcheck="false"></textarea>
         </section>
       </div>

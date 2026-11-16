@@ -495,6 +495,21 @@ def test_bildfliken(bild_server, browser, enhet, tmp_path):
     page.set_input_files("#imgFile", str(fil))
     page.locator("#images .img-card").nth(1).locator(".tag", has_text="Egen bild").wait_for()
     assert "1200×800" in page.locator("#images .img-card").nth(1).locator(".img-file").text_content()
+
+    # Fliken WordPress-kod visar vilka bilder som följer med. Utan WordPress kan inget laddas upp,
+    # och studions egna bildadresser hamnar aldrig i koden.
+    page.click(".tab[data-tab=code]")
+    page.locator("#codeBildlista li").nth(3).wait_for()
+    texter = page.locator("#codeBildlista li").all_text_contents()
+    assert "Bild 1 är en testbild och kan inte användas på sajten." in texter
+    assert "Bild 2 är inte uppladdad till WordPress mediabibliotek ännu." in texter
+    assert page.locator("#codeBildlista li.saknas").count() == 4
+    assert page.locator("#mediaBtn").is_visible() and page.locator("#mediaBtn").is_disabled()
+    assert "inte konfigurerat" in page.text_content("#mediaHint")
+    kod = page.input_value("#codeOut")
+    assert "khd-artikel" in kod and "/api/bilder/" not in kod and "<img" not in kod
+    _ingen_sidscroll(page)
+    _skarmbild(page, f"{enhet}-15-wordpress-kod")
     assert fel == []
     ctx.close()
 

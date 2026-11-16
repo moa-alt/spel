@@ -291,6 +291,12 @@ body[data-view="editor"] { --bottom-h: 132px; }
 .panel { display: none; padding: 16px; }
 .panel.active { display: block; }
 .panel-intro { margin: 0 0 16px; line-height: 1.6; }
+.code-bilder { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.code-bilder.varning { background: var(--warn-soft); border-color: transparent; }
+.code-bildlista { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+.code-bildlista li::before { content: "✓ "; color: var(--brand); font-weight: 700; }
+.code-bildlista li.saknas::before { content: "! "; color: var(--warn); }
+.code-bildatgard { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 
 /* ---------- Förhandsgranskning ---------- */
 .preview-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }

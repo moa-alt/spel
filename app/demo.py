@@ -87,7 +87,7 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
     }
     steg = {
         "id": "steg-for-steg", "layout": "bild", "bild": 4, "etikett": "Steg för steg",
-        "rubrik": "Så går du tillväga – steg för steg", "meny": "Steg för steg",
+        "rubrik": "Så går du tillväga steg för steg", "meny": "Steg för steg",
         "block": [{"typ": "steg", "punkter": [
             {"rubrik": "Inventera nuläget.", "text": "Kontrollera hur det fungerar i dag och notera problem."},
             {"rubrik": "Jämför alternativ.", "text": "Väg kostnad mot nytta och husets förutsättningar."},
@@ -148,7 +148,7 @@ def build_demo_article(huvudsokord: str, sekundara: list[str]) -> dict:
     ]
     images = [{"id": i + 1, "alt": alt, "bildtext": "", "prompt": prompt, "url": None} for i, (alt, prompt) in enumerate(bildmotiv)]
 
-    meta_title = f"{kw_cap} – guide, kostnad & tips"
+    meta_title = f"{kw_cap}: guide, kostnad & tips"
     return design.bygg({
         "titel": f"{kw_cap}: så gör du rätt",
         "slug": slugify(kw),

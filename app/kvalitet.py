@@ -139,7 +139,8 @@ def _bilder(artikel: dict, inn: dict, k: list, v: list, ok: list) -> None:
             k.append(_punkt("bild_genereras", f"Bild {bid} håller på att skapas."))
             continue
         if not b.get("fil"):
-            v.append(_punkt("bild_saknas", f"Bild {bid} är inte skapad och tas inte med i inlägget."))
+            v.append(_punkt("bild_saknas", f"Bild {bid} saknas: den är inte skapad och kommer inte med i inlägget eller i "
+                                           "WordPress-koden. Skapa bilden eller byt till en egen bild på fliken Bilder."))
             continue
         fil = bilder.sokvag(artikel["id"], b["fil"])
         if fil is None or not fil.is_file():
@@ -158,8 +159,56 @@ def _bilder(artikel: dict, inn: dict, k: list, v: list, ok: list) -> None:
     klara = [bid for bid in placerade if alla.get(bid, {}).get("fil")]
     if 1 not in klara:
         v.append(_punkt("ingen_huvudbild", "Huvudbilden saknas, så inlägget får ingen utvald bild."))
+    if len(set(placerade)) < bilder.ANTAL:
+        utan_plats = sorted(set(alla) - set(placerade))
+        v.append(_punkt("bild_utan_plats", f"Artikeln har plats för {len(set(placerade))} av {bilder.ANTAL} bilder"
+                        + (f"; bild {', '.join(map(str, utan_plats))} har ingen plats och kommer inte med." if utan_plats else ".")))
     if klara:
         ok.append(f"{len(klara)} av {len(placerade)} bilder klara som WebP")
+    # Bilder som inte finns i mediabiblioteket följer inte med när koden kopieras (de laddas upp när artikeln skickas).
+    media = bilder.lagrade_media(artikel["id"], inn) if artikel.get("id") else {}
+    ej_uppladdade = [bid for bid in klara if bid not in media and alla[bid].get("kalla") != "test"]
+    if ej_uppladdade:
+        v.append(_punkt("bild_ej_i_mediabiblioteket",
+                        f"Bild {', '.join(map(str, ej_uppladdade))} finns inte i WordPress mediabibliotek ännu och följer därför "
+                        "inte med när du kopierar WordPress-koden. Ladda upp bilderna på fliken WordPress-kod, eller skicka "
+                        "artikeln till WordPress, så laddas de upp där."))
+    elif klara and len(media) >= len(klara):
+        ok.append("Alla färdiga bilder finns i WordPress mediabibliotek")
+
+
+# Tankstreck (– och —) som skiljetecken. Tankstreck mellan siffror (20–25 grader) är intervall och tillåts,
+# liksom bindestreck i sammansättningar (FTX-system, ROT-avdrag, 1970-talshus).
+_STRECK = re.compile(r"—|\s*–\s*|\s-\s")
+_INTERVALL = re.compile(r"\d\s*$")
+
+
+def _ar_tankstreck(text: str, m: re.Match) -> bool:
+    if "—" in m.group(0):
+        return True
+    # Mellan två tal är strecket ett intervall (20–25 grader, 1990–2000), inte ett skiljetecken.
+    return not (_INTERVALL.search(text[:m.start()]) and re.match(r"\s*\d", text[m.end():]))
+
+
+def tankstreck(inn: dict) -> list[str]:
+    """Textutdrag där ett tankstreck används som skiljetecken."""
+    texter = [inn.get("titel", ""), inn.get("meta_titel", ""), inn.get("meta_beskrivning", ""), _text(inn.get("html", ""))]
+    texter += [t for b in inn.get("bilder", []) for t in (b.get("alt", ""), b.get("bildtext", ""))]
+    ut = []
+    for t in texter:
+        for m in _STRECK.finditer(t or ""):
+            if _ar_tankstreck(t, m):
+                ut.append("…" + t[max(0, m.start() - 30):m.end() + 30].strip() + "…")
+    return ut
+
+
+def _sprak(inn: dict, v: list, ok: list) -> None:
+    traffar = tankstreck(inn)
+    if traffar:
+        v.append(_punkt("tankstreck", f"Texten har {len(traffar)} tankstreck som skiljetecken. Skriv om med punkt eller komma, "
+                                      f"t.ex. {traffar[0]}"))
+    else:
+        ok.append("Inga tankstreck som skiljetecken")
 
 
 def _artikel_mal() -> dict[str, dict]:
@@ -296,6 +345,7 @@ def kontrollera(artikel: dict) -> dict:
     _sokord_och_meta(inn, artikel["huvudsokord"], k, v, ok)
     _struktur(inn, k, v, ok)
     _bilder(artikel, inn, k, v, ok)
+    _sprak(inn, v, ok)
     _lankar(artikel, k, v, ok)
     _kannibalisering(artikel, k, v)
     if config.settings.wp_url and inn.get("kategori_id") is None:

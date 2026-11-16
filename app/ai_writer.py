@@ -37,6 +37,13 @@ Du skriver kompletta, sökordsoptimerade guideartiklar på svenska som besvarar 
 - Hitta aldrig på fakta, statistik, studier, tester, produktrecensioner, citat, källor, källhänvisningar, produktnamn eller exakta regler. Skriv inte att något är testat eller att du har provat något. Är du osäker på en uppgift, utelämna den eller formulera dig allmänt. Ange kostnader som ungefärliga spann ("ungefär", "ofta") och skriv aldrig att en siffra gäller ett visst år. Nämn ROT-avdrag, bygglov eller regler allmänt och hänvisa till Skatteverket, Boverket eller kommunen för aktuella villkor.
 - Rekommendera fackman när något rör el, fukt i konstruktion, eldstäder eller bärande delar.
 
+# Skiljetecken: inga tankstreck
+- Använd aldrig tankstreck (– eller —) som skiljetecken, varken för inskott, tillägg, pauser eller förklaringar. Det gäller all text: rubriker, löptext, punkter, frågor och svar, metatitel, metabeskrivning, alt-texter och bildtexter.
+- Skriv i stället naturliga meningar. Dela upp långa meningar med punkt, eller använd komma eller kolon.
+  Fel: "En värmepump – rätt dimensionerad – sänker kostnaden." Rätt: "En rätt dimensionerad värmepump sänker kostnaden."
+  Fel: "Fukt i källaren – så åtgärdar du den". Rätt: "Fukt i källaren: så åtgärdar du den" eller "Så åtgärdar du fukt i källaren".
+- Vanliga bindestreck i korrekta sammansättningar är tillåtna, t.ex. FTX-system, ROT-avdrag, el-patron och 1970-talshus. Intervall mellan tal skrivs som vanligt, t.ex. 20–25 grader.
+
 # SEO
 - Huvudsökordet ska stå i titeln, metatiteln, metabeskrivningen, slugen, första stycket och minst en H2. Använd det naturligt, utan att överanvända det.
 - Väv in varje sekundärt sökord naturligt i löptext eller underrubriker, gärna i exakt form minst en gång.
@@ -61,14 +68,14 @@ Artikeln (fältet dokument) består av:
 - relaterade_rubrik: rubrik för relaterade guider (själva länkarna väljs automatiskt).
 Innehållsförteckning och relaterade artiklar skapas automatiskt; skriv dem inte själv.
 
-## Layouter – välj efter innehållet
+## Layouter: välj efter innehållet
 - standard: vanligt textavsnitt.
 - mork: mörkgrön sektion i full bredd med bild bredvid texten. Passar när något förklaras, t.ex. hur ett system fungerar. Högst två per artikel.
 - bild: text och bild sida vid sida; sidan växlar automatiskt. Passar avsnitt där en bild gör texten tydligare.
 - losningar: gräddvit sektion i full bredd för åtgärder och rekommendationer, oftast med block av typen kort_losning.
 Låt inte två sektioner i full bredd (mork, losningar) komma direkt efter varandra. Strukturen ska följa just det här ämnet; använd inte samma ordning och samma komponenter i varje artikel.
 
-## Block – välj de som tillför något
+## Block: välj de som tillför något
 Varje block har fälten typ, rubrik, text, punkter och rader. Fyll i de fält blocktypen använder och lämna de övriga tomma ("" eller []).
 - stycke: text på 2–4 meningar.
 - underrubrik: text = H3:ans rubrik inom sektionen.
@@ -191,7 +198,8 @@ def _anvandarprompt(huvudsokord: str, sekundara: list[str], andringar: str | Non
         prompt += f"\n\nRedaktören har granskat en tidigare version och begärt ändringar:\n<andringar>\n{andringar}\n</andringar>"
         if tidigare:
             prompt += (
-                "\n\nTidigare version (behåll det som fungerar och åtgärda ändringarna):\n<tidigare_version>\n"
+                "\n\nTidigare version (behåll det som fungerar och åtgärda ändringarna). Skriv om tankstreck som "
+                "används som skiljetecken, enligt reglerna för skiljetecken:\n<tidigare_version>\n"
                 f"Titel: {tidigare.get('titel', '')}\n\n{_tidigare_text(tidigare)}\n</tidigare_version>"
             )
     return prompt
