@@ -51,6 +51,8 @@ class Settings:
     anthropic_api_key: str = field(default_factory=lambda: hemlighet("ANTHROPIC_API_KEY"), repr=False)
     claude_model: str = field(default_factory=lambda: os.getenv("STUDIO_CLAUDE_MODEL", "claude-opus-5-5"))
     claude_effort: str = field(default_factory=lambda: os.getenv("STUDIO_CLAUDE_EFFORT", "high"))
+    # Reservmodell om Claude avböjer (server-side fallback, beta). "av" om kontot inte har tillgång till betan.
+    claude_reservmodell: bool = field(default_factory=lambda: os.getenv("STUDIO_CLAUDE_RESERVMODELL", "pa") != "av")
     openai_api_key: str = field(default_factory=lambda: hemlighet("OPENAI_API_KEY"), repr=False)
     wp_url: str = field(default_factory=lambda: os.getenv("WP_URL", "").rstrip("/"))
     wp_user: str = field(default_factory=lambda: os.getenv("WP_USER", ""))

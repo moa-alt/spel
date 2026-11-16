@@ -5,13 +5,22 @@ och till sist den färdiga artikeln, så att gränssnittet kan visa vad som hän
 """
 
 import json
+import logging
+import re
 from collections.abc import AsyncIterator
 
 import anthropic
 
-from . import config
+from . import config, design
 from .demo import slugify
-from . import design
+
+log = logging.getLogger("studio.ai_writer")
+
+RESERV_BETA = "server-side-fallback-2026-07-01"
+# Allt som liknar nycklar och tokens maskeras innan ett felmeddelande visas eller loggas.
+_KANSLIGT = re.compile(
+    r"sk-ant-[A-Za-z0-9_\-]{6,}|sk-(?:proj-)?[A-Za-z0-9_\-]{16,}|(?i:bearer)\s+[A-Za-z0-9._\-]{8,}"
+    r"|(?i:x-api-key)[\"':=\s]+[A-Za-z0-9._\-]{6,}|[A-Za-z0-9_\-]{40,}")
 
 SYSTEMPROMPT = """Du är seniorskribent och SEO-specialist på Klimathemmet (klimathemmet.se), en svensk sajt om inomhusklimat, ventilation, uppvärmning, värmepumpar, isolering, fukt och energibesparing i villor och äldre hus.
 
@@ -199,52 +208,125 @@ def _slutlig_text(message) -> str:
     return "".join(b.text for b in block[sista_reserv + 1:] if b.type == "text")
 
 
+def _klient() -> anthropic.AsyncAnthropic:
+    return anthropic.AsyncAnthropic(api_key=config.settings.anthropic_api_key, max_retries=3)
+
+
+def anropsparametrar(prompt: str, reservmodell: bool) -> dict:
+    """Parametrarna till Messages API. Nyckeln skickas av SDK:n i ett huvud, aldrig här."""
+    s = config.settings
+    parametrar = {
+        "model": s.claude_model,
+        "max_tokens": 64000,
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": s.claude_effort, "format": {"type": "json_schema", "schema": ARTIKEL_SCHEMA}},
+        "system": [{"type": "text", "text": SYSTEMPROMPT, "cache_control": {"type": "ephemeral"}}],
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if reservmodell:
+        # Om modellen avböjer tar en reservmodell över automatiskt (beta).
+        parametrar["extra_headers"] = {"anthropic-beta": RESERV_BETA}
+        parametrar["extra_body"] = {"fallbacks": "default"}
+    return parametrar
+
+
+def maskera(text: str) -> str:
+    """Tar bort allt som liknar nycklar och tokens, även den konfigurerade nyckeln."""
+    nyckel = config.settings.anthropic_api_key
+    if nyckel:
+        text = text.replace(nyckel, "[dolt]")
+    return _KANSLIGT.sub("[dolt]", text)
+
+
+def felorsak(e: anthropic.APIStatusError) -> tuple[str, str, str | None]:
+    """API:ets egen förklaring: (feltyp, meddelande, request-id). Meddelandet är maskerat och förkortat."""
+    fel = e.body.get("error") if isinstance(e.body, dict) else None
+    typ = str((fel or {}).get("type") or e.type or "")
+    meddelande = str((fel or {}).get("message") or "")
+    return maskera(typ), maskera(" ".join(meddelande.split()))[:500], e.request_id
+
+
+def _ar_reservfel(meddelande: str) -> bool:
+    m = meddelande.lower()
+    return "anthropic-beta" in m or "fallback" in m
+
+
+def _atgard(status: int, typ: str, meddelande: str) -> str:
+    """Konkret åtgärd för kända orsaker till fel från Claude."""
+    m = meddelande.lower()
+    if "credit balance" in m or typ == "billing_error" or status == 402:
+        return "Anthropic-kontot saknar krediter. Fyll på under Plans & Billing i Anthropic Console."
+    if _ar_reservfel(meddelande):
+        return "Kontot har inte tillgång till reservmodellerna (beta). Sätt STUDIO_CLAUDE_RESERVMODELL=av och starta om servern."
+    if m.startswith("model") or status == 404:
+        return f"Modellen {config.settings.claude_model} finns inte eller är inte tillgänglig för kontot. Kontrollera STUDIO_CLAUDE_MODEL."
+    if "output_config" in m or "schema" in m:
+        return "Claude godtog inte artikelns svarsformat (JSON-schemat). Det är ett fel i studion; skicka felmeddelandet till utvecklaren."
+    if "effort" in m:
+        return "Kontrollera STUDIO_CLAUDE_EFFORT (low, medium, high, xhigh eller max)."
+    if "too long" in m or "max_tokens" in m:
+        return "Anropet blev för stort. Försök med färre sekundära sökord eller kortare ändringsönskemål."
+    return ""
+
+
+def _api_fel(e: anthropic.APIStatusError) -> GenereringsFel:
+    typ, meddelande, request_id = felorsak(e)
+    log.warning("Claude svarade %s %s: %s (request-id %s)", e.status_code, typ, meddelande or "-", request_id or "-")
+    delar = [f"Claude svarade med fel {e.status_code}" + (f" ({typ})" if typ else "") + (f": {meddelande}" if meddelande else ".")]
+    if atgard := _atgard(e.status_code, typ, meddelande):
+        delar.append(atgard)
+    if request_id:
+        delar.append(f"Request-id: {request_id}")
+    return GenereringsFel(" ".join(d if d.endswith((".", ":")) else d + "." for d in delar))
+
+
 async def generera_artikel(
     huvudsokord: str, sekundara: list[str], andringar: str | None = None, tidigare: dict | None = None,
     lankmal: list[dict] | None = None,
 ) -> AsyncIterator[dict]:
-    client = anthropic.AsyncAnthropic(api_key=config.settings.anthropic_api_key, max_retries=3)
+    client = _klient()
+    prompt = _anvandarprompt(huvudsokord, sekundara, andringar, tidigare, lankmal)
+    reservmodell = config.settings.claude_reservmodell
     yield {"typ": "steg", "steg": 0}
     skriver = False
     tecken = 0
-    try:
-        async with client.messages.stream(
-            model=config.settings.claude_model,
-            max_tokens=64000,
-            thinking={"type": "adaptive"},
-            output_config={
-                "effort": config.settings.claude_effort,
-                "format": {"type": "json_schema", "schema": ARTIKEL_SCHEMA},
-            },
-            system=[{"type": "text", "text": SYSTEMPROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": _anvandarprompt(huvudsokord, sekundara, andringar, tidigare, lankmal)}],
-            # Om modellen avböjer tar en reservmodell över automatiskt.
-            extra_headers={"anthropic-beta": "server-side-fallback-2026-07-01"},
-            extra_body={"fallbacks": "default"},
-        ) as stream:
-            async for event in stream:
-                if event.type == "content_block_start" and event.content_block.type == "text" and not skriver:
-                    skriver = True
-                    yield {"typ": "steg", "steg": 1}
-                elif event.type == "content_block_delta" and event.delta.type == "text_delta":
-                    tecken += len(event.delta.text)
-                    if tecken // 2000 != (tecken - len(event.delta.text)) // 2000:
-                        yield {"typ": "framsteg", "tecken": tecken}
-            message = await stream.get_final_message()
-    except anthropic.AuthenticationError:
-        raise GenereringsFel("API-nyckeln godkändes inte. Kontrollera ANTHROPIC_API_KEY i .env och starta om servern.")
-    except anthropic.PermissionDeniedError:
-        raise GenereringsFel("API-nyckeln saknar behörighet till modellen. Kontrollera nyckeln i Anthropic Console.")
-    except anthropic.RateLimitError:
-        raise GenereringsFel("För många anrop just nu. Vänta en stund och försök igen.")
-    except anthropic.APIStatusError as e:
-        if e.status_code == 402 or getattr(e, "type", "") == "billing_error":
-            raise GenereringsFel("Anthropic-kontot saknar krediter. Fyll på under Billing i Anthropic Console.")
-        if e.status_code >= 500 or e.status_code == 529:
-            raise GenereringsFel("Claude är tillfälligt överbelastad. Försök igen om en stund.")
-        raise GenereringsFel(f"Anropet till Claude misslyckades ({e.status_code}).")
-    except anthropic.APIConnectionError:
-        raise GenereringsFel("Kunde inte nå Claude. Kontrollera serverns internetanslutning.")
+    while True:
+        try:
+            async with client.messages.stream(**anropsparametrar(prompt, reservmodell)) as stream:
+                async for event in stream:
+                    if event.type == "content_block_start" and event.content_block.type == "text" and not skriver:
+                        skriver = True
+                        yield {"typ": "steg", "steg": 1}
+                    elif event.type == "content_block_delta" and event.delta.type == "text_delta":
+                        tecken += len(event.delta.text)
+                        if tecken // 2000 != (tecken - len(event.delta.text)) // 2000:
+                            yield {"typ": "framsteg", "tecken": tecken}
+                message = await stream.get_final_message()
+            break
+        except anthropic.BadRequestError as e:
+            _, meddelande, request_id = felorsak(e)
+            if reservmodell and not skriver and _ar_reservfel(meddelande):
+                # Reservmodellerna är valfria: godtas de inte av kontot görs ett nytt försök utan dem.
+                log.warning("Claude godtog inte reservmodellerna (%s, request-id %s); försöker utan dem. "
+                            "Sätt STUDIO_CLAUDE_RESERVMODELL=av för att slippa det här försöket.", meddelande, request_id or "-")
+                reservmodell = False
+                continue
+            raise _api_fel(e)
+        except anthropic.AuthenticationError:
+            raise GenereringsFel("API-nyckeln godkändes inte. Kontrollera ANTHROPIC_API_KEY och starta om servern.")
+        except anthropic.PermissionDeniedError as e:
+            _, meddelande, request_id = felorsak(e)
+            raise GenereringsFel(f"API-nyckeln saknar behörighet{': ' + meddelande if meddelande else ''}. "
+                                 f"Kontrollera nyckeln och organisationen i Anthropic Console.{' Request-id: ' + request_id + '.' if request_id else ''}")
+        except anthropic.RateLimitError:
+            raise GenereringsFel("För många anrop just nu. Vänta en stund och försök igen.")
+        except anthropic.APIStatusError as e:
+            if e.status_code >= 500:
+                log.warning("Claude svarade %s (request-id %s)", e.status_code, e.request_id or "-")
+                raise GenereringsFel(f"Claude är tillfälligt överbelastad ({e.status_code}). Försök igen om en stund.")
+            raise _api_fel(e)
+        except anthropic.APIConnectionError:
+            raise GenereringsFel("Kunde inte nå Claude. Kontrollera serverns internetanslutning.")
 
     if message.stop_reason == "refusal":
         raise GenereringsFel("Claude avböjde att skriva om det här ämnet. Prova att formulera sökordet annorlunda.")

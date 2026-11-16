@@ -13,7 +13,7 @@ KANSLIGA = (
     "WP_URL", "WP_USER", "WP_APP_PASSWORD", "WP_APP_PASSWORD_FILE",
     "STUDIO_USER", "STUDIO_PASSWORD", "STUDIO_PASSWORD_FILE", "STUDIO_SESSION_SECRET", "STUDIO_SESSION_SECRET_FILE",
     "STUDIO_MILJO", "STUDIO_PUBLICERING", "STUDIO_DB", "STUDIO_DATA", "STUDIO_SECRETS_DIR", "STUDIO_ENV_FIL",
-    "STUDIO_CLAUDE_MODEL", "STUDIO_CLAUDE_EFFORT", "STUDIO_SCHEMALAGGARE",
+    "STUDIO_CLAUDE_MODEL", "STUDIO_CLAUDE_EFFORT", "STUDIO_CLAUDE_RESERVMODELL", "STUDIO_SCHEMALAGGARE",
     "STUDIO_BILDTJANST", "STUDIO_BILD_MODELL", "STUDIO_BILD_KVALITET", "STUDIO_BILD_API_URL", "STUDIO_BILD_PRIS_USD",
     "STUDIO_BILD_TIMEOUT", "STUDIO_USD_SEK",
 )
@@ -46,6 +46,24 @@ def inget_natverk(monkeypatch):
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", sparrad_async)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", sparrad)
+    # Anthropic-SDK:n använder httpx2: samma spärr gäller där, så att inga anrop kan nå Claude.
+    try:
+        import httpx2
+    except ImportError:
+        return
+    orginal2 = httpx2.AsyncHTTPTransport.handle_async_request
+    orginal2_sync = httpx2.HTTPTransport.handle_request
+
+    async def sparrad2_async(self, request):
+        kontroll(request)
+        return await orginal2(self, request)
+
+    def sparrad2(self, request):
+        kontroll(request)
+        return orginal2_sync(self, request)
+
+    monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", sparrad2_async)
+    monkeypatch.setattr(httpx2.HTTPTransport, "handle_request", sparrad2)
 
 
 @pytest.fixture()

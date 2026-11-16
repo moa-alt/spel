@@ -199,7 +199,11 @@ Med `ANTHROPIC_API_KEY` i `.env` skriver Claude artikeln. Utan nyckel visas en d
 - Svaret kommer som strukturerad JSON: titel, slug, metatitel, metabeskrivning, HTML och fyra bilder med alt-text, bildtext och bildprompt.
 - HTML:en följer designens komponenter (`kh-snabbfakta`, `kh-toc`, `kh-tips` med flera) och passerar en tillåtelselista som tar bort skript, stilar, `on*`-attribut och osäkra länkar.
 - Förloppet strömmas till gränssnittet medan Claude arbetar. En artikel tar normalt 1–3 minuter.
-- Om Claude avböjer en förfrågan tar en reservmodell över automatiskt (`fallbacks: "default"`).
+- Om Claude avböjer en förfrågan tar en reservmodell över automatiskt (`fallbacks: "default"`, beta). Har kontot inte tillgång till betan görs ett nytt försök utan reservmodeller; sätt `STUDIO_CLAUDE_RESERVMODELL=av` för att stänga av dem helt.
+- **Felmeddelanden:** misslyckas ett anrop visar artikeln Claudes egen felorsak, en åtgärd och request-id (som Anthropics support kan spåra). Nycklar och tokens maskeras alltid, både i studion och i serverloggen. Vanliga orsaker till HTTP 400:
+  - för lite krediter ("credit balance is too low")
+  - en beta som kontot inte har tillgång till
+  - ett felaktigt modellnamn i `STUDIO_CLAUDE_MODEL`
 - Valfria inställningar: `STUDIO_CLAUDE_MODEL` (standard `claude-opus-5-5`) och `STUDIO_CLAUDE_EFFORT` (`low`–`max`, standard `high`). Lägre effort går snabbare och kostar mindre.
 
 Prompten finns i `app/ai_writer.py` (`SYSTEMPROMPT`). Där justerar du ton, längd och struktur.
